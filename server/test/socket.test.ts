@@ -190,10 +190,67 @@ describe("real Socket.IO lobby commands", () => {
     const backCards: RoleAssignment[] = [];
     back.socket.on("role:assign", (value) => backCards.push(value));
     unwrap(await command(back.socket, "state:resume", { ...payload, requestId: randomUUID() }));
-    await expect.poll(() => backCards.length).toBeGreaterThan(0);
-    expect(backCards.at(-1)).toEqual(card);
-    expect(runtime.phase).toBe("ROLES");
+    await expect.poll(() => back.snapshots.length).toBeGreaterThan(0);
+    expect(backCards).toHaveLength(0);
+    expect(back.snapshots.at(-1)!.self.startingMemory).toBe(card.startingMemory);
+    expect(runtime.phase).toBe("INVESTIGATION_1");
     expect(runtime.secret!.commitment).toBe(players.publicStarts[0][0].commitment);
+  });
+
+  it("routes investigation receipts only to owners and deduplicates concurrent nested action commands", async () => {
+    const players = await fivePlayers(); await readyAll(players);
+    unwrap(await command(players.members[0].socket, "room:start", { roomId: players.room.roomId, requestId: randomUUID() }));
+    for (const member of players.members) unwrap(await command(member.socket, "role:acknowledge", { roomId: players.room.roomId, requestId: randomUUID() }));
+    const runtime = application.lobby.rooms.get(players.room.roomId)!;
+    expect(runtime.phase).toBe("INVESTIGATION_1");
+    const received: unknown[][] = players.members.map(() => []);
+    players.members.forEach((m, index) => m.socket.on("evidence:private", value => received[index].push(value)));
+    const payload = { roomId: players.room.roomId, requestId: randomUUID(), round: 1, action: { kind: "INVESTIGATE", leadId: "delivery_log" } };
+    const [first, retry] = await Promise.all([command(players.members[0].socket, "action:submit", payload), command(players.members[0].socket, "action:submit", { ...payload, action: { leadId: "delivery_log", kind: "INVESTIGATE" } })]);
+    expect(unwrap(first)).toEqual({ accepted: true, selectedAction: payload.action }); expect(retry).toEqual(first);
+    expect(runtime.investigation!.ledger.filter(e => e.kind === "ACTION_SELECTED")).toHaveLength(1);
+    expect(await command(players.members[0].socket, "action:submit", { ...payload, action: { kind: "PASS" } })).toMatchObject({ ok: false, error: { code: "REQUEST_CONFLICT" } });
+    expect(await command(players.members[1].socket, "action:submit", { ...payload, requestId: randomUUID(), participantId: players.room.participantId })).toMatchObject({ ok: false, error: { code: "BAD_PAYLOAD" } });
+    clock += 120_000; application.cleanup();
+    await expect.poll(() => received[0].length).toBe(1);
+    expect(received[0][0]).toMatchObject({ source: "INVESTIGATE", evidence: { id: "delivery_receipt" } });
+    for (const other of received.slice(1)) expect(other).toEqual([]);
+    await expect.poll(() => players.members[1].views.at(-1)!.phase).toBe("TWIST");
+    for (const member of players.members) expect(JSON.stringify(member.views)).not.toContain("delivery_receipt");
+    const back = await connect(players.members[0].cookie);
+    await expect.poll(() => back.snapshots.length).toBeGreaterThan(0);
+    expect(back.snapshots.at(-1)!.self.myEvidence.map(e => e.id)).toContain("delivery_receipt");
+    expect(back.snapshots.at(-1)!.self.selectedAction).toEqual(payload.action);
+    clock += 30_000; application.cleanup();
+    const outsider = await connect();
+    expect(await command(outsider.socket, "action:submit", { roomId: players.room.roomId, requestId: randomUUID(), round: 2, action: { kind: "PASS" } })).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+  });
+
+  it("restores outstanding owner-only settlement requests and rejects forged or repeated responses", async () => {
+    const players = await fivePlayers(); await readyAll(players);
+    unwrap(await command(players.members[0].socket, "room:start", { roomId: players.room.roomId, requestId: randomUUID() }));
+    clock += 45_000; application.cleanup();
+    const targetId = players.members[1].snapshots.at(-1)!.self.participantId;
+    // Wait for the initial snapshot if this member's socket has not flushed yet.
+    const runtime = application.lobby.rooms.get(players.room.roomId)!;
+    const addressed = [...runtime.participants.values()][1].participantId;
+    expect(targetId).toBe(addressed);
+    unwrap(await command(players.members[0].socket, "action:submit", { roomId: players.room.roomId, requestId: randomUUID(), round: 1, action: { kind: "CONFRONT", targetParticipantId: addressed, question: "Can you explain the attachment?" } }));
+    const requests: unknown[][] = players.members.map(() => []);
+    players.members.forEach((m, i) => m.socket.on("action:respond_requested", value => requests[i].push(value)));
+    clock += 120_000; application.cleanup();
+    await expect.poll(() => requests[1].length).toBeGreaterThan(0);
+    expect(requests.filter((_, i) => i !== 1).flat()).toHaveLength(0);
+    const anotherTab = await connect(players.members[1].cookie);
+    const restored: unknown[] = []; anotherTab.socket.on("action:respond_requested", value => restored.push(value));
+    unwrap(await command(anotherTab.socket, "state:resume", { roomId: players.room.roomId, requestId: randomUUID() }));
+    await expect.poll(() => restored.length).toBeGreaterThan(0);
+    const challengeId = [...runtime.investigation!.challenges.keys()][0];
+    const response = { roomId: players.room.roomId, requestId: randomUUID(), challengeId, response: "ANSWER", text: "I remember a flyer." };
+    expect(await command(players.members[2].socket, "action:respond", response)).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    const [answer, replay] = await Promise.all([command(anotherTab.socket, "action:respond", response), command(anotherTab.socket, "action:respond", response)]);
+    expect(unwrap(answer)).toEqual({ recorded: true }); expect(replay).toEqual(answer); expect(runtime.phase).toBe("TWIST");
+    expect(runtime.investigation!.events.filter(e => e.kind === "ANSWER")).toHaveLength(1);
   });
 
   it("authenticates via signed HttpOnly cookies and rejects missing, forged or wrong-origin sessions", async () => {

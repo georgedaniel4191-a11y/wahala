@@ -5,10 +5,12 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { Server, type Socket } from "socket.io";
 import { z } from "zod";
 import {
-  CASE_ID, CASE_TITLE, createRoomSchema, joinRoomSchema, readyRoomSchema, roomCommandSchema,
+  actionSubmitSchema, actionRespondSchema, dealRespondSchema, chatSendSchema, CASE_ID, CASE_TITLE, createRoomSchema, joinRoomSchema, readyRoomSchema, roomCommandSchema,
 } from "@wahala/shared";
 import type { Ack, ClientToServerEvents, ServerToClientEvents } from "@wahala/shared";
 import { CommandError, Lobby, type LobbyRoom } from "./lobby";
+import { loadCasePack } from "./case";
+import type { Delivery } from "./investigation";
 import { COOKIE_NAME, Sessions, RateLimiter, type GuestSession } from "./sessions";
 
 type SocketData = { session: GuestSession };
@@ -21,10 +23,8 @@ type CachedRequest = { fingerprint: string; ack: Ack<unknown>; expiresAtMs: numb
 const CACHE_AGE_MS = 24 * 60 * 60_000;
 
 function canonical(value: unknown): string {
-  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-    return JSON.stringify(Object.fromEntries(Object.entries(value).sort(([a], [b]) => a.localeCompare(b))));
-  }
-  return JSON.stringify(value);
+  const sorted = (v: unknown): unknown => Array.isArray(v) ? v.map(sorted) : v !== null && typeof v === "object" ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b)).map(([k, child]) => [k, sorted(child)])) : v;
+  return JSON.stringify(sorted(value));
 }
 
 export function createApplication(options: Options = {}) {
@@ -58,7 +58,7 @@ export function createApplication(options: Options = {}) {
   app.get("/health", (_request, response) => response.json({ status: "ok" }));
   app.get("/ready", (_request, response) => response.json({ status: "ok" }));
   app.get("/api/cases", (_request, response) => response.json({
-    cases: [{ caseId: CASE_ID, title: CASE_TITLE, seats: 5 }],
+    cases: [{ caseId: CASE_ID, title: CASE_TITLE, seats: 5, investigationLeads: loadCasePack().variants[0].investigationLeads.map(({ id, label }) => ({ id, label })) }],
   }));
   app.post("/api/session/guest", (request, response) => {
     response.setHeader("Cache-Control", "no-store");
@@ -97,12 +97,34 @@ export function createApplication(options: Options = {}) {
   function snapshot(socket: LobbySocket, room: LobbyRoom, announceStarted = true) {
     socket.emit("state:snapshot", {
       roomId: room.roomId, public: lobby.view(room),
-      self: lobby.self(socket.data.session, room.roomId), recentChat: [], reveal: null,
+      self: lobby.self(socket.data.session, room.roomId), recentChat: room.investigation?.chat ?? [], reveal: null,
     });
     const started = lobby.started(room);
     if (started && announceStarted) socket.emit("game:started", started);
     const card = lobby.role(socket.data.session, room.roomId);
-    if (card) socket.emit("role:assign", card);
+    if (card && room.phase === "ROLES") socket.emit("role:assign", card);
+    for (const delivery of room.investigation?.pending(lobby.self(socket.data.session, room.roomId).participantId) ?? []) emitDelivery(socket, delivery);
+  }
+  function emitDelivery(target: { emit: unknown }, delivery: Delivery) {
+    // Delivery is a discriminated event/payload union; this bridge only adapts
+    // Socket.IO's overloaded emitter. Owner routing is enforced below.
+    (target.emit as (event: string, payload: unknown) => void).call(target, delivery.event, delivery.payload);
+  }
+  function synchronize(room: LobbyRoom) {
+    const deliveries = room.investigation?.drain() ?? [];
+    for (const delivery of deliveries) {
+      if (!delivery.owner) emitDelivery(io.to(room.roomId), delivery);
+      else for (const socket of io.sockets.sockets.values()) {
+        const member = room.participants.get(socket.data.session.userId);
+        if (member?.participantId === delivery.owner && socket.data.session.roomId === room.roomId) emitDelivery(socket, delivery);
+      }
+    }
+    const view = lobby.view(room);
+    io.to(room.roomId).emit("game:phase", { roomId: room.roomId, phase: view.phase, round: view.round, version: view.version, deadlineAt: view.deadlineAt, serverNow: view.serverNow });
+    for (const socket of io.sockets.sockets.values()) {
+      if (socket.data.session.roomId === room.roomId && room.participants.has(socket.data.session.userId)) snapshot(socket, room, false);
+    }
+    publish(room);
   }
   function attachAll(session: GuestSession, room: LobbyRoom) {
     for (const socket of io.sockets.sockets.values()) {
@@ -167,8 +189,9 @@ export function createApplication(options: Options = {}) {
           }
         }
         io.to(room.roomId).emit("game:phase", { roomId: room.roomId, phase: room.phase,
-          round: 0, version: room.version, deadlineAt: null, serverNow: new Date(now()).toISOString() });
+          round: 0, version: room.version, deadlineAt: lobby.view(room).deadlineAt, serverNow: new Date(now()).toISOString() });
       } else attachAll(session, room);
+      if (room.investigation && event !== "room:start") synchronize(room);
       response = { ok: true, requestId, data, serverNow: new Date(now()).toISOString() };
       requests.set(key, { fingerprint, ack: response, expiresAtMs: session.expiresAtMs });
       ack(response);
@@ -204,13 +227,22 @@ export function createApplication(options: Options = {}) {
       (value) => lobby.start(session, socket.id, value)));
     socket.on("role:acknowledge", (payload, ack) => command(socket, "role:acknowledge", roomCommandSchema, payload, ack,
       (value) => lobby.acknowledge(session, socket.id, value)));
+    socket.on("action:submit", (payload, ack) => command(socket, "action:submit", actionSubmitSchema, payload, ack,
+      value => lobby.gameCommand(session, socket.id, "action:submit", value)));
+    socket.on("action:respond", (payload, ack) => command(socket, "action:respond", actionRespondSchema, payload, ack,
+      value => lobby.gameCommand(session, socket.id, "action:respond", value)));
+    socket.on("deal:respond", (payload, ack) => command(socket, "deal:respond", dealRespondSchema, payload, ack,
+      value => lobby.gameCommand(session, socket.id, "deal:respond", value)));
+    socket.on("chat:send", (payload, ack) => command(socket, "chat:send", chatSendSchema, payload, ack,
+      value => lobby.gameCommand(session, socket.id, "chat:send", value)));
     socket.on("disconnect", () => {
       const room = lobby.disconnect(session, socket.id);
-      if (room) publish(room);
+      if (room) { room.investigation?.tick(); if (room.investigation) synchronize(room); else publish(room); }
     });
   });
 
   function cleanup() {
+    for (const room of lobby.tick()) synchronize(room);
     const result = lobby.cleanup();
     for (const room of result.updated) publish(room);
     for (const roomId of result.closed) {
@@ -227,7 +259,7 @@ export function createApplication(options: Options = {}) {
     sessions.cleanup();
     limiter.cleanup();
   }
-  const timer = setInterval(cleanup, options.cleanupIntervalMs ?? 5_000);
+  const timer = setInterval(cleanup, options.cleanupIntervalMs ?? 100);
   timer.unref();
   async function close() {
     clearInterval(timer);

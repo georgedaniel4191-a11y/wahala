@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { AVATARS, CASE_ID, CASE_TITLE, createRoomSchema, joinRoomSchema, SEAT_COUNT } from "@wahala/shared";
-import type { BotPolicy, RoomView, Snapshot, RoleAssignment, GameStarted } from "@wahala/shared";
+import type { BotPolicy, RoomView, Snapshot, RoleAssignment, GameStarted, SelfView } from "@wahala/shared";
 import { openLobbyConnection, sendCommand, type LobbyConnection } from "@/lib/lobby-connection";
 import SecretRole from "./secret-role";
+import Investigation from "./investigation";
 
 const STORAGE_KEY = "wahala:lobby";
 const avatarColors: Record<string, string> = {
@@ -14,6 +15,7 @@ const avatarColors: Record<string, string> = {
 
 export default function Lobby() {
   const socketRef = useRef<LobbyConnection | null>(null);
+  const [activeSocket, setActiveSocket] = useState<LobbyConnection | null>(null);
   const roomRef = useRef<RoomView | null>(null);
   const [room, setRoom] = useState<RoomView | null>(null);
   const [participantId, setParticipantId] = useState<string | null>(null);
@@ -30,6 +32,7 @@ export default function Lobby() {
   const [botPolicy, setBotPolicy] = useState<BotPolicy>("none");
   const [consent, setConsent] = useState(false);
   const [connectionAttempt, setConnectionAttempt] = useState(0);
+  const [self, setSelf] = useState<SelfView | null>(null);
   const [role, setRole] = useState<RoleAssignment | null>(null);
   const [started, setStarted] = useState<GameStarted | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
@@ -41,7 +44,7 @@ export default function Lobby() {
     const clearRoom = () => {
       roomRef.current = null;
       setRoom(null); setParticipantId(null); setConsent(false);
-      setRole(null); setStarted(null); setAcknowledged(false);
+      setSelf(null); setRole(null); setStarted(null); setAcknowledged(false);
       localStorage.removeItem(STORAGE_KEY);
     };
     const update = (view: RoomView) => {
@@ -58,9 +61,11 @@ export default function Lobby() {
         const invite = new URLSearchParams(window.location.search).get("code");
         if (invite) { setCode(invite.toUpperCase()); setTab("join"); }
         socketRef.current = socket;
+        setActiveSocket(socket);
         socket.on("state:snapshot", (snapshot: Snapshot) => {
           update(snapshot.public);
           setParticipantId(snapshot.self.participantId);
+          setSelf(snapshot.self);
           setError("");
         });
         socket.on("room:updated", ({ view }) => update(view));
@@ -86,7 +91,7 @@ export default function Lobby() {
         socket.on("disconnect", () => {
           setConnected(false); setConnection("Reconnecting to your seat…"); setConsent(false);
           // Never display a private dossier while its connection is stale.
-          setRole(null);
+          setRole(null); setSelf(null);
         });
         socket.on("connect_error", () => {
           setConnected(false); setConnecting(false);
@@ -173,7 +178,9 @@ export default function Lobby() {
         <span className="text-xs text-muted" role="status"><span className={`mr-2 inline-block h-2 w-2 rounded-full ${connected ? "bg-mint" : "bg-coral"}`} />{connection}</span>
       </header>
 
-      {room?.phase === "ROLES" ? (
+      {room && room.phase !== "LOBBY" && room.phase !== "ROLES" ? (
+        self && connected && activeSocket ? <Investigation room={room} self={self} started={started} socket={activeSocket} connected={connected} /> : <p role="status">Reconnecting to your investigation…</p>
+      ) : room?.phase === "ROLES" ? (
         role && role.roomId === room.roomId ? <SecretRole key={`${role.roomId}:${role.personaId}`} card={role}
           displayName={started?.cast.find((p) => p.personaId === role.personaId)?.displayName ?? role.personaId}
           connected={connected} busy={busy} acknowledged={acknowledged} onProceed={acknowledgeRole} />

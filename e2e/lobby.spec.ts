@@ -80,9 +80,28 @@ test("five browser sessions share readiness, deny a sixth seat, and preserve a s
     await expect(pages[1].getByTestId("starting-memory")).toHaveText(memories[1]);
     for (const page of pages.slice(0, 5)) {
       await page.getByRole("button", { name: "Proceed to Investigation" }).click();
-      await expect(page.getByRole("button", { name: "Role acknowledged", exact: true })).toBeDisabled();
-      await expect(page.getByText("Your role is confirmed. Investigation will be available in the next build.")).toBeVisible();
     }
+    for (const page of pages.slice(0, 5)) {
+      await expect(page.getByRole("heading", { name: "Opening investigation" })).toBeVisible();
+      await expect(page.getByRole("region", { name: "Evidence board" })).toContainText("First external appearance");
+      await expect(page.getByRole("button", { name: "Save action" })).toBeEnabled();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    }
+    await pages[0].getByLabel("Your statement").fill("Can we verify the delivery timeline?");
+    await pages[0].getByRole("button", { name: "Send statement" }).click();
+    await expect(pages[1].getByRole("region", { name: "Conversation" })).toContainText("Can we verify the delivery timeline?");
+    await pages[0].getByRole("combobox", { name: "Action", exact: true }).selectOption("TRACE_SELF");
+    await pages[0].getByRole("button", { name: "Save action" }).click();
+    await expect(pages[0].getByText("Selected: TRACE SELF", { exact: true })).toBeVisible();
+    await pages[0].getByRole("combobox", { name: "Action", exact: true }).selectOption("INVESTIGATE");
+    await pages[0].getByRole("button", { name: "Save action" }).click();
+    await expect(pages[0].getByText("Selected: INVESTIGATE", { exact: true })).toBeVisible();
+    await pages[0].reload();
+    await expect(pages[0].getByRole("heading", { name: "Opening investigation" })).toBeVisible();
+    await expect(pages[0].getByText("Selected: INVESTIGATE", { exact: true })).toBeVisible();
+    await expect(pages[0].getByRole("region", { name: "Conversation" })).toContainText("Can we verify the delivery timeline?");
+    await pages[0].screenshot({ path: "work/investigation-mobile.png", fullPage: true });
+
   } finally { await Promise.all(contexts.map((context) => context.close())); }
 });
 

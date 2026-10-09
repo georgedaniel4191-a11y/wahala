@@ -38,7 +38,7 @@ export default function SecretRole({ card, displayName, connected, busy, acknowl
       <button type="button" className="primary-button w-full" disabled={!connected || busy || !revealed || acknowledged} onClick={onProceed}>
         {busy ? "Confirming…" : acknowledged ? "Role acknowledged" : "Proceed to Investigation"}
       </button>
-      {acknowledged && <p role="status" className="text-center text-sm text-muted">Your role is confirmed. Investigation will be available in the next build.</p>}
+      {acknowledged && <p role="status" className="text-center text-sm text-muted">Your role is confirmed. Waiting for the other players or the server role deadline.</p>}
     </section>
   );
 }

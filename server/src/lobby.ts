@@ -1,8 +1,10 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { CASE_ID, CASE_TITLE, SEAT_COUNT } from "@wahala/shared";
-import type { BotPolicy, CreateRoomCommand, JoinRoomCommand, ReadyRoomCommand, ResumeCommand, RoomView, SelfView, ErrorCode, GameStarted, RoleAssignment } from "@wahala/shared";
+import type { BotPolicy, CreateRoomCommand, JoinRoomCommand, ReadyRoomCommand, ResumeCommand, RoomView, SelfView, GameStarted, RoleAssignment, Phase, ClientToServerEvents } from "@wahala/shared";
 import type { GuestSession } from "./sessions";
 import { initializeCase, loadCasePack, projectRole, clueView, type CaseInitialization } from "./case";
+
+import { Investigation } from "./investigation";
 
 const casePack = loadCasePack();
 
@@ -10,9 +12,8 @@ const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export const RECONNECT_GRACE_MS = 90_000;
 export const ROOM_IDLE_MS = 30 * 60_000;
 
-export class CommandError extends Error {
-  constructor(public readonly code: ErrorCode, message: string) { super(message); }
-}
+import { CommandError } from "./errors";
+export { CommandError } from "./errors";
 
 type Participant = {
   participantId: string; userId: string; nickname: string; avatarId: string;
@@ -22,9 +23,9 @@ type Participant = {
 };
 export type LobbyRoom = {
   roomId: string; code: string; hostUserId: string; caseId: string;
-  phase: "LOBBY" | "ROLES"; version: number; phaseVersion: number; locked: boolean; botPolicy: BotPolicy;
+  phase: Phase; version: number; phaseVersion: number; locked: boolean; botPolicy: BotPolicy;
   lastActivityAtMs: number; participants: Map<string, Participant>;
-  secret: CaseInitialization | null;
+  secret: CaseInitialization | null; investigation: Investigation | null;
 };
 
 export class Lobby {
@@ -63,7 +64,7 @@ export class Lobby {
     this.checkAvailable(session);
     const room: LobbyRoom = {
       roomId: randomUUID(), code: this.newCode(), hostUserId: session.userId,
-      caseId: command.caseId, phase: "LOBBY", version: 1, phaseVersion: 0, locked: false, secret: null,
+      caseId: command.caseId, phase: "LOBBY", version: 1, phaseVersion: 0, locked: false, secret: null, investigation: null,
       botPolicy: command.botPolicy, lastActivityAtMs: this.now(), participants: new Map(),
     };
     const participant = this.add(room, session, socketId, command);
@@ -147,6 +148,9 @@ export class Lobby {
     for (let index = 0; index < players.length; index += 1) players[index].personaId = cards[index].personaId;
     room.locked = true;
     room.phase = "ROLES";
+    room.investigation = new Investigation(room.roomId, secret, players, casePack.settings.seconds, this.now, (phase, phaseChanged) => {
+      room.phase = phase; if (phaseChanged) room.phaseVersion += 1; this.touch(room); return room.version;
+    });
     room.phaseVersion += 1;
     this.touch(room);
     return { room, data: { phase: "ROLES" as const, version: room.version } };
@@ -157,7 +161,7 @@ export class Lobby {
     if (!participant.socketIds.has(socketId)) throw new CommandError("FORBIDDEN", "Reconnect to your seat first.");
     if (room.phase !== "ROLES") throw new CommandError("WRONG_PHASE", "Role acknowledgment is only available during ROLES.");
     if (!participant.roleAcknowledged) { participant.roleAcknowledged = true; this.touch(room); }
-    // Investigation scheduling is intentionally deferred in this slice.
+    room.investigation!.acknowledge();
     return { room, data: { acknowledged: true as const } };
   }
 
@@ -220,6 +224,31 @@ export class Lobby {
     return { updated, closed };
   }
 
+  tick() {
+    const changed: LobbyRoom[] = [];
+    for (const room of this.rooms.values()) {
+      const version = room.version;
+      room.investigation?.tick();
+      if (room.version !== version) changed.push(room);
+    }
+    return changed;
+  }
+
+  gameCommand<E extends "action:submit" | "action:respond" | "deal:respond" | "chat:send">(session: GuestSession, socketId: string, event: E, command: Parameters<ClientToServerEvents[E]>[0]) {
+    const { room, participant } = this.member(session, command.roomId);
+    if (!participant.socketIds.has(socketId)) throw new CommandError("FORBIDDEN", "Reconnect to your seat first.");
+    const game = room.investigation;
+    if (!game) throw new CommandError("WRONG_PHASE", "The investigation has not begun.");
+    const actor = participant.participantId;
+    // The socket event and corresponding schema are paired by the adapter.
+    let data: unknown;
+    if (event === "action:submit") { const c = command as Parameters<ClientToServerEvents["action:submit"]>[0]; data = game.submit(actor, c.round, c.action); }
+    if (event === "action:respond") { const c = command as Parameters<ClientToServerEvents["action:respond"]>[0]; data = game.respond(actor, c.challengeId, c.response, c.text); }
+    if (event === "deal:respond") { const c = command as Parameters<ClientToServerEvents["deal:respond"]>[0]; data = game.deal(actor, c.offerId, c.accept); }
+    if (event === "chat:send") { const c = command as Parameters<ClientToServerEvents["chat:send"]>[0]; data = game.sendChat(actor, c.channel, c.text); }
+    return { room, data: data as Extract<Parameters<Parameters<ClientToServerEvents[E]>[1]>[0], { ok: true }>["data"] };
+  }
+
   private touch(room: LobbyRoom) {
     room.version += 1;
     room.lastActivityAtMs = this.now();
@@ -242,19 +271,21 @@ export class Lobby {
       locked: room.locked,
       publicClues: room.secret?.variant.evidence.filter((e) => e.release === "public_start").map(clueView) ?? [],
       publicEvents: [], accusationMarkers: [],
+      ...room.investigation?.publicView(),
       causeOptions: room.secret ? casePack.causeOptions.map((o) => ({ ...o })) : [],
       resolutionOptions: room.secret ? casePack.resolutionOptions.map((o) => ({ ...o })) : [],
     };
   }
 
   self(session: GuestSession, roomId: string): SelfView {
-    const { participant } = this.member(session, roomId);
+    const { room, participant } = this.member(session, roomId);
     const card = this.role(session, roomId);
     return {
       participantId: participant.participantId, personaId: participant.personaId, startingMemory: card?.startingMemory ?? null,
       midgameMemory: null, mission: card?.mission ?? null,
       ability: card ? { ...card.ability, used: false } : null, myEvidence: card?.startingEvidence ?? [], myMemoryFragments: [],
       selectedAction: null, actionLocked: false, myBallot: null,
+      ...room.investigation?.self(participant.participantId),
     };
   }
 }
