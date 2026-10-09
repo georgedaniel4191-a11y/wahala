@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { AVATARS, CASE_ID, CASE_TITLE, createRoomSchema, joinRoomSchema, SEAT_COUNT } from "@wahala/shared";
-import type { BotPolicy, RoomView, Snapshot } from "@wahala/shared";
+import type { BotPolicy, RoomView, Snapshot, RoleAssignment, GameStarted } from "@wahala/shared";
 import { openLobbyConnection, sendCommand, type LobbyConnection } from "@/lib/lobby-connection";
+import SecretRole from "./secret-role";
 
 const STORAGE_KEY = "wahala:lobby";
 const avatarColors: Record<string, string> = {
@@ -29,6 +30,9 @@ export default function Lobby() {
   const [botPolicy, setBotPolicy] = useState<BotPolicy>("none");
   const [consent, setConsent] = useState(false);
   const [connectionAttempt, setConnectionAttempt] = useState(0);
+  const [role, setRole] = useState<RoleAssignment | null>(null);
+  const [started, setStarted] = useState<GameStarted | null>(null);
+  const [acknowledged, setAcknowledged] = useState(false);
 
   useEffect(() => {
     let disposed = false;
@@ -37,6 +41,7 @@ export default function Lobby() {
     const clearRoom = () => {
       roomRef.current = null;
       setRoom(null); setParticipantId(null); setConsent(false);
+      setRole(null); setStarted(null); setAcknowledged(false);
       localStorage.removeItem(STORAGE_KEY);
     };
     const update = (view: RoomView) => {
@@ -59,6 +64,8 @@ export default function Lobby() {
           setError("");
         });
         socket.on("room:updated", ({ view }) => update(view));
+        socket.on("game:started", (value) => setStarted(value));
+        socket.on("role:assign", (card) => setRole(card));
         socket.on("room:closed", () => {
           clearRoom(); setNotice("Your lobby expired. You can create or join another one.");
         });
@@ -78,6 +85,8 @@ export default function Lobby() {
         });
         socket.on("disconnect", () => {
           setConnected(false); setConnection("Reconnecting to your seat…"); setConsent(false);
+          // Never display a private dossier while its connection is stale.
+          setRole(null);
         });
         socket.on("connect_error", () => {
           setConnected(false); setConnecting(false);
@@ -115,6 +124,26 @@ export default function Lobby() {
   }
 
   const me = room?.participants.find((p) => p.participantId === participantId);
+  const everyoneReady = room?.participants.length === 5 && room.participants.every((p) => p.ready && p.connected);
+  async function startGame() {
+    if (!room || !me?.isHost || !socketRef.current?.connected || busy) return;
+    setBusy(true); setError("");
+    try {
+      const ack = await sendCommand(socketRef.current, "room:start", { requestId: crypto.randomUUID(), roomId: room.roomId });
+      if (!ack.ok) setError(ack.error.message);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "The case could not start."); }
+    finally { setBusy(false); }
+  }
+  async function acknowledgeRole() {
+    if (!room || !role || !socketRef.current?.connected || busy) return;
+    setBusy(true); setError("");
+    try {
+      const ack = await sendCommand(socketRef.current, "role:acknowledge", { requestId: crypto.randomUUID(), roomId: room.roomId });
+      if (!ack.ok) setError(ack.error.message);
+      else setAcknowledged(true);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Your role could not be confirmed."); }
+    finally { setBusy(false); }
+  }
   async function toggleReady() {
     if (!room || !me || !socketRef.current?.connected || busy) return;
     setBusy(true); setError("");
@@ -138,13 +167,18 @@ export default function Lobby() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-lg flex-col px-5 py-8 sm:px-8">
+    <main className={`mx-auto flex min-h-screen w-full max-w-lg flex-col px-5 py-8 sm:px-8 ${room?.phase === "ROLES" ? "bg-[#090C11]" : ""}`}>
       <header className="mb-10 flex items-center justify-between gap-3">
         <Link href="/" className="text-2xl font-black tracking-[0.15em] text-gold" aria-label="Wahala home">WAHALA<span className="text-coral">.</span></Link>
         <span className="text-xs text-muted" role="status"><span className={`mr-2 inline-block h-2 w-2 rounded-full ${connected ? "bg-mint" : "bg-coral"}`} />{connection}</span>
       </header>
 
-      {room ? (
+      {room?.phase === "ROLES" ? (
+        role && role.roomId === room.roomId ? <SecretRole key={`${role.roomId}:${role.personaId}`} card={role}
+          displayName={started?.cast.find((p) => p.personaId === role.personaId)?.displayName ?? role.personaId}
+          connected={connected} busy={busy} acknowledged={acknowledged} onProceed={acknowledgeRole} />
+          : <p role="status" className="rounded-2xl border border-divider bg-surface p-6 text-center">{connected ? "Opening your private dossier…" : "Reconnecting to your secret role…"}</p>
+      ) : room ? (
         <section aria-labelledby="lobby-heading" className="space-y-6">
           <div><p className="eyebrow">Private lobby</p><h1 id="lobby-heading" className="mt-2 text-3xl font-bold leading-tight">{room.title}</h1>
             <p className="mt-3 text-muted">Five characters. Five secrets.</p></div>
@@ -174,8 +208,9 @@ export default function Lobby() {
             disabled={!connected || !me || busy || (!me.ready && room.botPolicy === "allow_bots" && !consent)}>
             {busy ? "Updating…" : me?.ready ? "Not ready" : "Ready"}
           </button>
-          <p className="text-center text-sm text-muted" role="status">{room.participants.length === 5 && room.participants.every((p) => p.ready && p.connected)
-            ? "Everyone is ready. Game start is coming in a later step."
+          {me?.isHost && <button type="button" className="primary-button w-full" onClick={startGame} disabled={!connected || busy || !everyoneReady}>Start case</button>}
+          <p className="text-center text-sm text-muted" role="status">{everyoneReady
+            ? "Everyone is ready. The host can start the case."
             : "Waiting for five players to be ready."}</p>
         </section>
       ) : (

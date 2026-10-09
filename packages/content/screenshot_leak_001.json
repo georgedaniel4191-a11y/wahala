@@ -1,0 +1,482 @@
+{
+  "schemaVersion": "1.0.0",
+  "caseId": "screenshot_leak_001",
+  "metadata": {
+    "title": "Who Leaked the Screenshot?",
+    "subtitle": "Five friends. One forwarded file. Nobody has the whole story.",
+    "locale": "en-NG",
+    "rating": "adult_18_plus",
+    "estimatedMinutes": 10,
+    "tags": [
+      "mystery",
+      "social",
+      "nigeria",
+      "blind_involvement"
+    ],
+    "sponsorLabel": null
+  },
+  "settings": {
+    "playerCount": 5,
+    "actionRounds": 3,
+    "actionsPerRound": 1,
+    "seconds": {
+      "roles": 45,
+      "round": 120,
+      "twist": 30,
+      "vote": 45,
+      "reveal": 60,
+      "response": 20
+    },
+    "allowEarlyElimination": false
+  },
+  "causeOptions": [
+    {
+      "id": "wrong_file_forward",
+      "label": "A private image was forwarded to an outsider by mistake"
+    },
+    {
+      "id": "edited_public_quote",
+      "label": "A misleading public quote was mistaken for the screenshot"
+    },
+    {
+      "id": "external_account_access",
+      "label": "Someone outside the group accessed a member account"
+    }
+  ],
+  "resolutionOptions": [
+    {
+      "id": "secure_and_correct",
+      "label": "Tell the affected person, secure the chat, and correct the record"
+    },
+    {
+      "id": "accuse_publicly",
+      "label": "Publish an accusation before the evidence is settled"
+    },
+    {
+      "id": "do_nothing",
+      "label": "Ignore the leak and take no further action"
+    }
+  ],
+  "personas": [
+    {
+      "id": "tobi",
+      "displayName": "Tobi",
+      "publicBio": "Handles sharing links and event files"
+    },
+    {
+      "id": "ada",
+      "displayName": "Ada",
+      "publicBio": "Organised the original group discussion"
+    },
+    {
+      "id": "zainab",
+      "displayName": "Zainab",
+      "publicBio": "Keeps receipts and timelines"
+    },
+    {
+      "id": "emeka",
+      "displayName": "Emeka",
+      "publicBio": "Often mediates disagreements"
+    },
+    {
+      "id": "feyi",
+      "displayName": "Feyi",
+      "publicBio": "Made a provocative joke earlier in the chat"
+    }
+  ],
+  "variants": [
+    {
+      "id": "wrong_attachment_v1",
+      "publicIntro": "A private group screenshot appeared outside the chat at 20:42. You must establish how it happened and decide what the group should do.",
+      "correct": {
+        "causeId": "wrong_file_forward",
+        "resolutionId": "secure_and_correct",
+        "principalActorPersonaId": "tobi"
+      },
+      "chain": [
+        {
+          "id": "capture",
+          "minute": "20:14",
+          "actorPersonaId": "ada",
+          "truth": "Ada saved a screenshot for personal notes within the group."
+        },
+        {
+          "id": "sync",
+          "minute": "20:20",
+          "actorPersonaId": "ada",
+          "truth": "Ada synced her screenshot from personal notes into the shared folder."
+        },
+        {
+          "id": "mislabel",
+          "minute": "20:26",
+          "actorPersonaId": "emeka",
+          "truth": "Emeka renamed a shared folder so the event flyer and screenshot had similar labels."
+        },
+        {
+          "id": "forward",
+          "minute": "20:41",
+          "actorPersonaId": "tobi",
+          "truth": "Tobi forwarded the screenshot attachment to outsider Kemi, believing it was the event flyer."
+        },
+        {
+          "id": "spread",
+          "minute": "20:42",
+          "actorPersonaId": "zainab",
+          "truth": "Zainab noticed the image outside the group and warned the members."
+        },
+        {
+          "id": "joke",
+          "minute": "20:45",
+          "actorPersonaId": "feyi",
+          "truth": "Feyi joked that they had planned to leak it, but did not forward the file."
+        }
+      ],
+      "missions": [
+        {
+          "id": "m_tobi",
+          "description": "Avoid receiving a majority of personal-blame votes.",
+          "predicate": {
+            "kind": "role_not_majority_accused",
+            "roleId": "tobi"
+          }
+        },
+        {
+          "id": "m_ada",
+          "description": "Get the group to settle the incident responsibly.",
+          "predicate": {
+            "kind": "group_success"
+          }
+        },
+        {
+          "id": "m_zainab",
+          "description": "Identify the person who actually forwarded the attachment.",
+          "predicate": {
+            "kind": "voted_for_actor",
+            "roleId": "tobi"
+          }
+        },
+        {
+          "id": "m_emeka",
+          "description": "Publish the verified file-label receipt.",
+          "predicate": {
+            "kind": "evidence_published",
+            "evidenceId": "file_label_receipt"
+          }
+        },
+        {
+          "id": "m_feyi",
+          "description": "Avoid receiving a majority of personal-blame votes.",
+          "predicate": {
+            "kind": "role_not_majority_accused",
+            "roleId": "feyi"
+          }
+        }
+      ],
+      "abilities": [
+        {
+          "id": "a_tobi",
+          "kind": "observer",
+          "description": "Learn which lead one chosen person investigated, not its result.",
+          "limit": 1,
+          "effect": {
+            "kind": "peek_investigation_lead"
+          }
+        },
+        {
+          "id": "a_ada",
+          "kind": "messenger",
+          "description": "Unlock an additional link from the file-transfer timeline.",
+          "limit": 1,
+          "effect": {
+            "kind": "grant_evidence",
+            "evidenceId": "backup_match"
+          }
+        },
+        {
+          "id": "a_zainab",
+          "kind": "audit",
+          "description": "Verify the delivery log for a matching outbound file.",
+          "limit": 1,
+          "effect": {
+            "kind": "grant_evidence",
+            "evidenceId": "delivery_receipt"
+          }
+        },
+        {
+          "id": "a_emeka",
+          "kind": "insider",
+          "description": "Retrieve a hash match from the archive.",
+          "limit": 1,
+          "effect": {
+            "kind": "grant_evidence",
+            "evidenceId": "backup_match"
+          }
+        },
+        {
+          "id": "a_feyi",
+          "kind": "protector",
+          "description": "Delay the optional public joke clue by one round if used in round one.",
+          "limit": 1,
+          "effect": {
+            "kind": "delay_optional_clue",
+            "evidenceId": "joke_receipt",
+            "delayRounds": 1
+          }
+        }
+      ],
+      "roleCards": [
+        {
+          "personaId": "tobi",
+          "startingMemory": "You sent Kemi a file at about 20:41, thinking it was the event flyer.",
+          "midgameMemory": "You sent the file without opening its preview first.",
+          "blindInvolvement": "The attachment was the private screenshot; your forward caused the leak.",
+          "missionId": "m_tobi",
+          "abilityId": "a_tobi",
+          "startingEvidenceIds": [],
+          "traceEvidenceIds": [
+            "tobi_trace"
+          ]
+        },
+        {
+          "personaId": "ada",
+          "startingMemory": "You created a screenshot for your own notes at about 20:14.",
+          "midgameMemory": "Your notes app later synchronised with the shared folder.",
+          "blindInvolvement": "Your original image was copied into the shared file folder, but you did not send it outside.",
+          "missionId": "m_ada",
+          "abilityId": "a_ada",
+          "startingEvidenceIds": [
+            "ada_note"
+          ],
+          "traceEvidenceIds": [
+            "ada_trace"
+          ]
+        },
+        {
+          "personaId": "zainab",
+          "startingMemory": "You saw the screenshot outside the group at about 20:42.",
+          "midgameMemory": "You posted a warning shortly after seeing it.",
+          "blindInvolvement": "Your warning started a rumour but did not cause the external leak.",
+          "missionId": "m_zainab",
+          "abilityId": "a_zainab",
+          "startingEvidenceIds": [
+            "zainab_alert"
+          ],
+          "traceEvidenceIds": [
+            "zainab_trace"
+          ]
+        },
+        {
+          "personaId": "emeka",
+          "startingMemory": "You reorganised file names while cleaning a shared folder yesterday.",
+          "midgameMemory": "You remember one screenshot and one flyer had nearly identical names.",
+          "blindInvolvement": "Your folder change made a filename mix-up more likely.",
+          "missionId": "m_emeka",
+          "abilityId": "a_emeka",
+          "startingEvidenceIds": [
+            "file_label_receipt"
+          ],
+          "traceEvidenceIds": [
+            "emeka_trace"
+          ]
+        },
+        {
+          "personaId": "feyi",
+          "startingMemory": "You made an exaggerated joke about leaking the group chat.",
+          "midgameMemory": "Your message was sent after the screenshot had already appeared outside.",
+          "blindInvolvement": "Your remark became a false lead; you did not forward the screenshot.",
+          "missionId": "m_feyi",
+          "abilityId": "a_feyi",
+          "startingEvidenceIds": [],
+          "traceEvidenceIds": [
+            "feyi_trace"
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "id": "public_time",
+          "title": "First external appearance",
+          "body": "The screenshot first appeared outside the group at 20:42.",
+          "kind": "public_clue",
+          "release": "public_start",
+          "leadId": null,
+          "initialOwnerRoleId": null,
+          "verified": true,
+          "factTags": [
+            "time_2042"
+          ]
+        },
+        {
+          "id": "ada_note",
+          "title": "Original image",
+          "body": "Ada saved an image in her private notes at 20:14.",
+          "kind": "private_evidence",
+          "release": "private_start",
+          "leadId": null,
+          "initialOwnerRoleId": "ada",
+          "verified": true,
+          "factTags": [
+            "image_origin"
+          ]
+        },
+        {
+          "id": "zainab_alert",
+          "title": "Warning message",
+          "body": "Zainab alerted the group shortly after 20:42.",
+          "kind": "private_evidence",
+          "release": "private_start",
+          "leadId": null,
+          "initialOwnerRoleId": "zainab",
+          "verified": true,
+          "factTags": [
+            "warning"
+          ]
+        },
+        {
+          "id": "file_label_receipt",
+          "title": "Folder rename log",
+          "body": "Two file names were similar after a shared-folder cleanup at 20:26.",
+          "kind": "private_evidence",
+          "release": "private_start",
+          "leadId": null,
+          "initialOwnerRoleId": "emeka",
+          "verified": true,
+          "factTags": [
+            "file_ambiguity"
+          ]
+        },
+        {
+          "id": "delivery_receipt",
+          "title": "Outbound delivery log",
+          "body": "Tobi sent a file to Kemi at 20:41. The file hash matches the screenshot.",
+          "kind": "private_evidence",
+          "release": "investigate",
+          "leadId": "delivery_log",
+          "initialOwnerRoleId": null,
+          "verified": true,
+          "factTags": [
+            "transfer_actor",
+            "decisive"
+          ]
+        },
+        {
+          "id": "backup_match",
+          "title": "Archive hash match",
+          "body": "Independent archive metadata shows Tobi sent Kemi a file at 20:41 with the private screenshot hash.",
+          "kind": "private_evidence",
+          "release": "investigate",
+          "leadId": "archive_audit",
+          "initialOwnerRoleId": null,
+          "verified": true,
+          "factTags": [
+            "transfer_file",
+            "decisive"
+          ]
+        },
+        {
+          "id": "joke_receipt",
+          "title": "Suspicious joke",
+          "body": "Feyi joked about leaking the chat before the emergency meeting. This does not prove a leak.",
+          "kind": "public_clue",
+          "release": "twist",
+          "leadId": null,
+          "initialOwnerRoleId": null,
+          "verified": true,
+          "factTags": [
+            "red_herring"
+          ]
+        },
+        {
+          "id": "tobi_trace",
+          "title": "Your file preview",
+          "body": "Your 20:41 attachment preview was the private screenshot, not the event flyer.",
+          "kind": "memory_fragment",
+          "release": "trace_self",
+          "leadId": null,
+          "initialOwnerRoleId": "tobi",
+          "verified": true,
+          "factTags": [
+            "self_discovery"
+          ]
+        },
+        {
+          "id": "ada_trace",
+          "title": "Your original copy",
+          "body": "Your notes image moved into the shared folder, but your device sent nothing outside.",
+          "kind": "memory_fragment",
+          "release": "trace_self",
+          "leadId": null,
+          "initialOwnerRoleId": "ada",
+          "verified": true,
+          "factTags": [
+            "self_discovery"
+          ]
+        },
+        {
+          "id": "zainab_trace",
+          "title": "Your warning effect",
+          "body": "Your message spread suspicion after the external appearance.",
+          "kind": "memory_fragment",
+          "release": "trace_self",
+          "leadId": null,
+          "initialOwnerRoleId": "zainab",
+          "verified": true,
+          "factTags": [
+            "self_discovery"
+          ]
+        },
+        {
+          "id": "emeka_trace",
+          "title": "Your folder effect",
+          "body": "Your earlier rename left two confusingly similar attachments.",
+          "kind": "memory_fragment",
+          "release": "trace_self",
+          "leadId": null,
+          "initialOwnerRoleId": "emeka",
+          "verified": true,
+          "factTags": [
+            "self_discovery"
+          ]
+        },
+        {
+          "id": "feyi_trace",
+          "title": "Your joke in context",
+          "body": "Your comment was performative; no transfer originated from your account.",
+          "kind": "memory_fragment",
+          "release": "trace_self",
+          "leadId": null,
+          "initialOwnerRoleId": "feyi",
+          "verified": true,
+          "factTags": [
+            "self_discovery"
+          ]
+        }
+      ],
+      "twist": {
+        "id": "red_herring_joke",
+        "afterRound": 1,
+        "headline": "An old message makes Feyi look suspicious.",
+        "publicEvidenceIds": [
+          "joke_receipt"
+        ]
+      },
+      "investigationLeads": [
+        {
+          "id": "delivery_log",
+          "label": "Check outbound file delivery",
+          "evidenceIds": [
+            "delivery_receipt"
+          ]
+        },
+        {
+          "id": "archive_audit",
+          "label": "Audit the original group archive",
+          "evidenceIds": [
+            "backup_match"
+          ]
+        }
+      ],
+      "revealSummary": "Tobi forwarded the wrong file to Kemi at 20:41. The file-name collision contributed to the mistake; later jokes and warnings confused the group."
+    }
+  ]
+}

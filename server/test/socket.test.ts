@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { io, type Socket } from "socket.io-client";
 import type { AddressInfo } from "node:net";
-import { CASE_ID, type Ack, type RoomView, type Snapshot } from "@wahala/shared";
+import { CASE_ID, type Ack, type RoomView, type Snapshot, type RoleAssignment, type GameStarted } from "@wahala/shared";
 import { createApplication } from "../src/app";
 import { RECONNECT_GRACE_MS } from "../src/lobby";
+import { loadCasePack } from "../src/case";
 
 const ORIGIN = "http://localhost:3000";
 let application: ReturnType<typeof createApplication>;
@@ -59,7 +60,142 @@ async function create(socket: Socket) {
   return unwrap(await command<{ roomId: string; code: string; participantId: string; inviteUrl: string }>(socket, "room:create", createPayload()));
 }
 
+async function fivePlayers() {
+  const members = [await connect()];
+  const room = await create(members[0].socket);
+  for (let index = 1; index < 5; index += 1) {
+    const member = await connect();
+    unwrap(await command(member.socket, "room:join", { requestId: randomUUID(), code: room.code, nickname: `Guest ${index}`, avatarId: "gold" }));
+    members.push(member);
+  }
+  const cards: RoleAssignment[][] = members.map(() => []);
+  const publicStarts: GameStarted[][] = members.map(() => []);
+  members.forEach(({ socket }, index) => {
+    socket.on("role:assign", (card) => cards[index].push(card));
+    socket.on("game:started", (event) => publicStarts[index].push(event));
+  });
+  return { members, room, cards, publicStarts };
+}
+async function readyAll(players: Awaited<ReturnType<typeof fivePlayers>>) {
+  for (const member of players.members) unwrap(await command(member.socket, "room:ready", {
+    requestId: randomUUID(), roomId: players.room.roomId, ready: true,
+  }));
+}
+
 describe("real Socket.IO lobby commands", () => {
+  it("starts only for the host with five connected ready owners, and locks the roster", async () => {
+    const players = await fivePlayers();
+    const { members, room } = players;
+    expect(await command(members[1].socket, "room:start", { requestId: randomUUID(), roomId: room.roomId }))
+      .toMatchObject({ ok: false, error: { code: "NOT_HOST" } });
+    expect(await command(members[0].socket, "room:start", { requestId: randomUUID(), roomId: room.roomId }))
+      .toMatchObject({ ok: false, error: { code: "NOT_READY" } });
+    expect(await command(members[0].socket, "role:acknowledge", { requestId: randomUUID(), roomId: room.roomId }))
+      .toMatchObject({ ok: false, error: { code: "WRONG_PHASE" } });
+    await readyAll(players);
+    expect(await command(members[0].socket, "room:start", { requestId: randomUUID(), roomId: room.roomId, seed: "chosen_by_client" }))
+      .toMatchObject({ ok: false, error: { code: "BAD_PAYLOAD" } });
+    const payload = { requestId: randomUUID(), roomId: room.roomId };
+    const [started, duplicate] = await Promise.all([command(members[0].socket, "room:start", payload), command(members[0].socket, "room:start", payload)]);
+    expect(duplicate).toEqual(started);
+    expect(unwrap(started)).toMatchObject({ phase: "ROLES" });
+    const runtime = application.lobby.rooms.get(room.roomId)!;
+    const commitment = runtime.secret!.commitment;
+    expect(runtime).toMatchObject({ phase: "ROLES", locked: true, phaseVersion: 1 });
+    expect(await command(members[0].socket, "room:start", { ...payload, requestId: randomUUID() }))
+      .toMatchObject({ ok: false, error: { code: "WRONG_PHASE" } });
+    expect(runtime.secret!.commitment).toBe(commitment);
+    expect(await command(members[1].socket, "room:ready", { ...payload, requestId: randomUUID(), ready: false }))
+      .toMatchObject({ ok: false, error: { code: "WRONG_PHASE" } });
+    const newcomer = await connect();
+    expect(await command(newcomer.socket, "room:join", { requestId: randomUUID(), code: room.code, nickname: "Late", avatarId: "mint" }))
+      .toMatchObject({ ok: false, error: { code: "WRONG_PHASE" } });
+  });
+
+  it("delivers one exact authored card per owner without leaking truth or other private cards", async () => {
+    const players = await fivePlayers();
+    const outsider = await connect();
+    const outsiderCards: RoleAssignment[] = [];
+    outsider.socket.on("role:assign", (card) => outsiderCards.push(card));
+    await readyAll(players);
+    unwrap(await command(players.members[0].socket, "room:start", { requestId: randomUUID(), roomId: players.room.roomId }));
+    const pack = loadCasePack();
+    const runtime = application.lobby.rooms.get(players.room.roomId)!;
+    const secret = runtime.secret!;
+    for (let index = 0; index < 5; index += 1) {
+      const member = players.members[index];
+      await expect.poll(() => players.cards[index].length).toBe(1);
+      expect(players.publicStarts[index]).toHaveLength(1);
+      const card = players.cards[index][0];
+      const self = member.snapshots.at(-1)!.self;
+      const authored = pack.variants[0].roleCards.find((c) => c.personaId === card.personaId)!;
+      expect(card.startingMemory).toBe(authored.startingMemory);
+      expect(card.mission).toEqual({ id: authored.missionId, description: pack.variants[0].missions.find((m) => m.id === authored.missionId)!.description });
+      expect(card.ability).toEqual({ id: authored.abilityId, description: pack.variants[0].abilities.find((a) => a.id === authored.abilityId)!.description });
+      expect(self.personaId).toBe(card.personaId);
+      expect(self.startingMemory).toBe(card.startingMemory);
+      expect(secret.canonical.personaToParticipant[card.personaId]).toBe(self.participantId);
+      const publicJSON = JSON.stringify({ updates: member.views, started: players.publicStarts[index], public: member.snapshots.map((s) => s.public) });
+      const ownerJSON = JSON.stringify({ snapshots: member.snapshots, cards: players.cards[index] });
+      expect(publicJSON).not.toContain(secret.sealedSeedHex);
+      for (const privateCard of pack.variants[0].roleCards) {
+        expect(publicJSON).not.toContain(privateCard.startingMemory);
+        expect(ownerJSON).not.toContain(privateCard.blindInvolvement);
+        expect(ownerJSON).not.toContain(privateCard.midgameMemory);
+        if (privateCard.personaId !== card.personaId) expect(ownerJSON).not.toContain(privateCard.startingMemory);
+      }
+      expect(ownerJSON).not.toContain(secret.sealedSeedHex);
+      for (const key of ["canonical", "sealedSeedHex", "truth", "chain", "correct", "predicate", "roleCards"]) {
+        expect(publicJSON).not.toContain(`"${key}"`);
+        expect(ownerJSON).not.toContain(`"${key}"`);
+      }
+      expect(players.publicStarts[index][0].cast).toHaveLength(5);
+    }
+    expect(new Set(players.cards.map((cards) => cards[0].personaId)).size).toBe(5);
+    expect(outsiderCards).toHaveLength(0);
+    expect(outsider.snapshots).toHaveLength(0);
+    expect(await command(outsider.socket, "state:resume", { requestId: randomUUID(), roomId: players.room.roomId }))
+      .toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    expect(await command(outsider.socket, "role:acknowledge", { requestId: randomUUID(), roomId: players.room.roomId }))
+      .toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+  });
+
+  it("restores only the same owner's role across tabs/reconnects and records acknowledgment idempotently", async () => {
+    const players = await fivePlayers();
+    await readyAll(players);
+    unwrap(await command(players.members[0].socket, "room:start", { requestId: randomUUID(), roomId: players.room.roomId }));
+    const owner = players.members[2];
+    await expect.poll(() => players.cards[2].length).toBe(1);
+    const card = players.cards[2][0];
+    const runtime = application.lobby.rooms.get(players.room.roomId)!;
+    const payload = { requestId: randomUUID(), roomId: players.room.roomId };
+    const ack = await command(owner.socket, "role:acknowledge", payload);
+    expect(unwrap(ack)).toEqual({ acknowledged: true });
+    const version = runtime.version;
+    expect(await command(owner.socket, "role:acknowledge", payload)).toEqual(ack);
+    unwrap(await command(owner.socket, "role:acknowledge", { ...payload, requestId: randomUUID() }));
+    expect(runtime.version).toBe(version);
+    expect([...runtime.participants.values()].filter((p) => p.roleAcknowledged)).toHaveLength(1);
+    expect(await command(owner.socket, "role:acknowledge", { ...payload, requestId: randomUUID(), participantId: players.room.participantId }))
+      .toMatchObject({ ok: false, error: { code: "BAD_PAYLOAD" } });
+    const anotherTab = await connect(owner.cookie);
+    await expect.poll(() => anotherTab.snapshots.length).toBeGreaterThan(0);
+    expect(anotherTab.snapshots.at(-1)!.self.startingMemory).toBe(card.startingMemory);
+    owner.socket.disconnect(); anotherTab.socket.disconnect();
+    await expect.poll(() => application.lobby.view(runtime).participants.find((p) => p.personaId === card.personaId)!.connected).toBe(false);
+    clock += RECONNECT_GRACE_MS + 1;
+    application.cleanup();
+    expect(runtime.participants.size).toBe(5);
+    const back = await connect(owner.cookie);
+    const backCards: RoleAssignment[] = [];
+    back.socket.on("role:assign", (value) => backCards.push(value));
+    unwrap(await command(back.socket, "state:resume", { ...payload, requestId: randomUUID() }));
+    await expect.poll(() => backCards.length).toBeGreaterThan(0);
+    expect(backCards.at(-1)).toEqual(card);
+    expect(runtime.phase).toBe("ROLES");
+    expect(runtime.secret!.commitment).toBe(players.publicStarts[0][0].commitment);
+  });
+
   it("authenticates via signed HttpOnly cookies and rejects missing, forged or wrong-origin sessions", async () => {
     expect((await fetch(`${url}/api/session/guest`, { method: "POST" })).status).toBe(403);
     const response = await fetch(`${url}/api/session/guest`, { method: "POST", headers: { Origin: ORIGIN } });

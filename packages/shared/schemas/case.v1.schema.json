@@ -1,0 +1,690 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wahala.game/schemas/case.v1.schema.json",
+  "title": "Wahala Chain Case Pack v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "caseId",
+    "metadata",
+    "settings",
+    "causeOptions",
+    "resolutionOptions",
+    "personas",
+    "variants"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "caseId": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]{3,64}$"
+    },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "subtitle",
+        "locale",
+        "rating",
+        "estimatedMinutes",
+        "tags",
+        "sponsorLabel"
+      ],
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 3
+        },
+        "subtitle": {
+          "type": "string",
+          "minLength": 1
+        },
+        "locale": {
+          "type": "string",
+          "minLength": 2
+        },
+        "rating": {
+          "enum": [
+            "adult_18_plus"
+          ]
+        },
+        "estimatedMinutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 20
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "sponsorLabel": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "playerCount",
+        "actionRounds",
+        "actionsPerRound",
+        "seconds",
+        "allowEarlyElimination"
+      ],
+      "properties": {
+        "playerCount": {
+          "const": 5
+        },
+        "actionRounds": {
+          "const": 3
+        },
+        "actionsPerRound": {
+          "const": 1
+        },
+        "allowEarlyElimination": {
+          "const": false
+        },
+        "seconds": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "roles",
+            "round",
+            "twist",
+            "vote",
+            "reveal",
+            "response"
+          ],
+          "properties": {
+            "roles": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 300
+            },
+            "round": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 300
+            },
+            "twist": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 300
+            },
+            "vote": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 300
+            },
+            "reveal": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 300
+            },
+            "response": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 300
+            }
+          }
+        }
+      }
+    },
+    "causeOptions": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/$defs/option"
+      }
+    },
+    "resolutionOptions": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 4,
+      "items": {
+        "$ref": "#/$defs/option"
+      }
+    },
+    "personas": {
+      "type": "array",
+      "minItems": 5,
+      "maxItems": 5,
+      "items": {
+        "$ref": "#/$defs/persona"
+      }
+    },
+    "variants": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/variant"
+      }
+    }
+  },
+  "$defs": {
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 3
+        }
+      }
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,63}$"
+    },
+    "persona": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "displayName",
+        "publicBio"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 2
+        },
+        "publicBio": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "mission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "description",
+        "predicate"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 4
+        },
+        "predicate": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "group_success"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "roleId"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "role_not_majority_accused"
+                },
+                "roleId": {
+                  "$ref": "#/$defs/id"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "evidenceId"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "evidence_published"
+                },
+                "evidenceId": {
+                  "$ref": "#/$defs/id"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "roleId"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "voted_for_actor"
+                },
+                "roleId": {
+                  "$ref": "#/$defs/id"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "trace_self_used"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "ability": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "description",
+        "limit",
+        "effect"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "enum": [
+            "audit",
+            "messenger",
+            "insider",
+            "protector",
+            "observer"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "limit": {
+          "const": 1
+        },
+        "effect": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "evidenceId"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "grant_evidence"
+                },
+                "evidenceId": {
+                  "$ref": "#/$defs/id"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "peek_investigation_lead"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "evidenceId",
+                "delayRounds"
+              ],
+              "properties": {
+                "kind": {
+                  "const": "delay_optional_clue"
+                },
+                "evidenceId": {
+                  "$ref": "#/$defs/id"
+                },
+                "delayRounds": {
+                  "const": 1
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "body",
+        "kind",
+        "release",
+        "verified",
+        "leadId"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 3
+        },
+        "body": {
+          "type": "string",
+          "minLength": 8
+        },
+        "kind": {
+          "enum": [
+            "public_clue",
+            "private_evidence",
+            "memory_fragment"
+          ]
+        },
+        "verified": {
+          "const": true
+        },
+        "release": {
+          "enum": [
+            "public_start",
+            "private_start",
+            "investigate",
+            "twist",
+            "trace_self"
+          ]
+        },
+        "leadId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "initialOwnerRoleId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "factTags": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "roleCard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "personaId",
+        "startingMemory",
+        "midgameMemory",
+        "blindInvolvement",
+        "missionId",
+        "abilityId",
+        "startingEvidenceIds",
+        "traceEvidenceIds"
+      ],
+      "properties": {
+        "personaId": {
+          "$ref": "#/$defs/id"
+        },
+        "startingMemory": {
+          "type": "string",
+          "minLength": 8
+        },
+        "midgameMemory": {
+          "type": "string",
+          "minLength": 8
+        },
+        "blindInvolvement": {
+          "type": "string",
+          "minLength": 8
+        },
+        "missionId": {
+          "$ref": "#/$defs/id"
+        },
+        "abilityId": {
+          "$ref": "#/$defs/id"
+        },
+        "startingEvidenceIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "uniqueItems": true
+        },
+        "traceEvidenceIds": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      }
+    },
+    "chainEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "minute",
+        "actorPersonaId",
+        "truth"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "minute": {
+          "type": "string",
+          "pattern": "^[0-2][0-9]:[0-5][0-9]$"
+        },
+        "actorPersonaId": {
+          "$ref": "#/$defs/id"
+        },
+        "truth": {
+          "type": "string",
+          "minLength": 8
+        }
+      }
+    },
+    "twist": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "afterRound",
+        "headline",
+        "publicEvidenceIds"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "afterRound": {
+          "const": 1
+        },
+        "headline": {
+          "type": "string",
+          "minLength": 4
+        },
+        "publicEvidenceIds": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "publicIntro",
+        "correct",
+        "chain",
+        "roleCards",
+        "missions",
+        "abilities",
+        "evidence",
+        "twist",
+        "investigationLeads",
+        "revealSummary"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "publicIntro": {
+          "type": "string",
+          "minLength": 20
+        },
+        "correct": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "causeId",
+            "resolutionId",
+            "principalActorPersonaId"
+          ],
+          "properties": {
+            "causeId": {
+              "$ref": "#/$defs/id"
+            },
+            "resolutionId": {
+              "$ref": "#/$defs/id"
+            },
+            "principalActorPersonaId": {
+              "$ref": "#/$defs/id"
+            }
+          }
+        },
+        "chain": {
+          "type": "array",
+          "minItems": 3,
+          "items": {
+            "$ref": "#/$defs/chainEvent"
+          }
+        },
+        "roleCards": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/roleCard"
+          }
+        },
+        "missions": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/mission"
+          }
+        },
+        "abilities": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "$ref": "#/$defs/ability"
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "minItems": 8,
+          "items": {
+            "$ref": "#/$defs/evidence"
+          }
+        },
+        "twist": {
+          "$ref": "#/$defs/twist"
+        },
+        "investigationLeads": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "evidenceIds"
+            ],
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/id"
+              },
+              "label": {
+                "type": "string"
+              },
+              "evidenceIds": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/id"
+                },
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        "revealSummary": {
+          "type": "string",
+          "minLength": 20
+        }
+      }
+    }
+  }
+}

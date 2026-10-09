@@ -94,11 +94,15 @@ export function createApplication(options: Options = {}) {
   function publish(room: LobbyRoom) {
     io.to(room.roomId).emit("room:updated", { roomId: room.roomId, view: lobby.view(room) });
   }
-  function snapshot(socket: LobbySocket, room: LobbyRoom) {
+  function snapshot(socket: LobbySocket, room: LobbyRoom, announceStarted = true) {
     socket.emit("state:snapshot", {
       roomId: room.roomId, public: lobby.view(room),
       self: lobby.self(socket.data.session, room.roomId), recentChat: [], reveal: null,
     });
+    const started = lobby.started(room);
+    if (started && announceStarted) socket.emit("game:started", started);
+    const card = lobby.role(socket.data.session, room.roomId);
+    if (card) socket.emit("role:assign", card);
   }
   function attachAll(session: GuestSession, room: LobbyRoom) {
     for (const socket of io.sockets.sockets.values()) {
@@ -152,7 +156,19 @@ export function createApplication(options: Options = {}) {
       // The in-memory adapter and domain mutations are synchronous: each command
       // validates and commits without an await, including the five-seat check.
       const { room, data } = execute(parsed.data);
-      attachAll(session, room);
+      if (event === "room:start") {
+        const started = lobby.started(room)!;
+        io.to(room.roomId).emit("game:started", started);
+        // Each socket's session determines its card, including duplicate tabs.
+        // The role projector is never used for a room broadcast.
+        for (const memberSocket of io.sockets.sockets.values()) {
+          if (room.participants.has(memberSocket.data.session.userId) && memberSocket.data.session.roomId === room.roomId) {
+            snapshot(memberSocket, room, false);
+          }
+        }
+        io.to(room.roomId).emit("game:phase", { roomId: room.roomId, phase: room.phase,
+          round: 0, version: room.version, deadlineAt: null, serverNow: new Date(now()).toISOString() });
+      } else attachAll(session, room);
       response = { ok: true, requestId, data, serverNow: new Date(now()).toISOString() };
       requests.set(key, { fingerprint, ack: response, expiresAtMs: session.expiresAtMs });
       ack(response);
@@ -184,6 +200,10 @@ export function createApplication(options: Options = {}) {
       (value) => lobby.ready(session, socket.id, value)));
     socket.on("state:resume", (payload, ack) => command(socket, "state:resume", roomCommandSchema, payload, ack,
       (value) => ({ room: lobby.attach(session, socket.id, value.roomId), data: { resumed: true as const } })));
+    socket.on("room:start", (payload, ack) => command(socket, "room:start", roomCommandSchema, payload, ack,
+      (value) => lobby.start(session, socket.id, value)));
+    socket.on("role:acknowledge", (payload, ack) => command(socket, "role:acknowledge", roomCommandSchema, payload, ack,
+      (value) => lobby.acknowledge(session, socket.id, value)));
     socket.on("disconnect", () => {
       const room = lobby.disconnect(session, socket.id);
       if (room) publish(room);

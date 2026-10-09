@@ -16,3 +16,18 @@
 - Story, voting, bot fill, start transitions, persistence, and the remaining roadmap are deferred.
 
 See README.md for assumptions, environment variables, and verification commands.
+
+## 2026-10-09 — Story initialization and secret role assignment
+
+- Added spec-exact `room:start`, `game:started`, `game:phase`, `role:assign`, and
+  `role:acknowledge` contracts; the server transitions `LOBBY -> ROLES`.
+- Extracted the exact JSON schema / screenshot case from the master spec, generated
+  server-only types, and added AJV 2020 plus semantic reference/ownership validation.
+- Added cryptographically seeded, unbiased five-person allocation, immutable canonical
+  truth, case hash, and seed commitment. Only the host can start five connected ready seats.
+- Added owner-only role delivery and private snapshot recovery, preserving Tobi, Ada,
+  Zainab, Emeka, and Feyi cards verbatim, with no public roles/seed/truth exposure.
+- Locked roster after start and added idempotent owner acknowledgment.
+- Added sealed/reveal/hide Secret Dossier screen and host start button.
+- Added deterministic case, authorization, privacy, multi-tab, reconnect, and browser
+  role-flow tests. Investigation timers, chat/actions, voting, and bot fill remain deferred.

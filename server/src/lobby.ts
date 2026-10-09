@@ -1,7 +1,10 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { CASE_ID, CASE_TITLE, SEAT_COUNT } from "@wahala/shared";
-import type { BotPolicy, CreateRoomCommand, JoinRoomCommand, ReadyRoomCommand, RoomView, SelfView, ErrorCode } from "@wahala/shared";
+import type { BotPolicy, CreateRoomCommand, JoinRoomCommand, ReadyRoomCommand, ResumeCommand, RoomView, SelfView, ErrorCode, GameStarted, RoleAssignment } from "@wahala/shared";
 import type { GuestSession } from "./sessions";
+import { initializeCase, loadCasePack, projectRole, clueView, type CaseInitialization } from "./case";
+
+const casePack = loadCasePack();
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 export const RECONNECT_GRACE_MS = 90_000;
@@ -15,11 +18,13 @@ type Participant = {
   participantId: string; userId: string; nickname: string; avatarId: string;
   socketIds: Set<string>; disconnectedAtMs: number | null;
   ready: boolean; acceptBotFill: boolean; acceptedIdentityHiddenDisclosure: boolean;
+  personaId: string | null; roleAcknowledged: boolean;
 };
 export type LobbyRoom = {
   roomId: string; code: string; hostUserId: string; caseId: string;
-  phase: "LOBBY"; version: number; locked: boolean; botPolicy: BotPolicy;
+  phase: "LOBBY" | "ROLES"; version: number; phaseVersion: number; locked: boolean; botPolicy: BotPolicy;
   lastActivityAtMs: number; participants: Map<string, Participant>;
+  secret: CaseInitialization | null;
 };
 
 export class Lobby {
@@ -46,6 +51,7 @@ export class Lobby {
       participantId: randomUUID(), userId: session.userId, ...profile,
       socketIds: new Set([socketId]), disconnectedAtMs: null, ready: false,
       acceptBotFill: false, acceptedIdentityHiddenDisclosure: false,
+      personaId: null, roleAcknowledged: false,
     };
     room.participants.set(session.userId, participant);
     session.roomId = room.roomId;
@@ -57,7 +63,7 @@ export class Lobby {
     this.checkAvailable(session);
     const room: LobbyRoom = {
       roomId: randomUUID(), code: this.newCode(), hostUserId: session.userId,
-      caseId: command.caseId, phase: "LOBBY", version: 1, locked: false,
+      caseId: command.caseId, phase: "LOBBY", version: 1, phaseVersion: 0, locked: false, secret: null,
       botPolicy: command.botPolicy, lastActivityAtMs: this.now(), participants: new Map(),
     };
     const participant = this.add(room, session, socketId, command);
@@ -122,6 +128,57 @@ export class Lobby {
     return { room, data: { ready: participant.ready } };
   }
 
+  start(session: GuestSession, socketId: string, command: ResumeCommand) {
+    const { room, participant } = this.member(session, command.roomId);
+    if (!participant.socketIds.has(socketId)) throw new CommandError("FORBIDDEN", "Reconnect to your seat first.");
+    if (room.hostUserId !== session.userId) throw new CommandError("NOT_HOST", "Only the host can start the case.");
+    if (room.phase !== "LOBBY") throw new CommandError("WRONG_PHASE", "This case has already started.");
+    const players = [...room.participants.values()];
+    if (players.length !== SEAT_COUNT || players.some((p) => !p.ready || !p.socketIds.size)) {
+      throw new CommandError("NOT_READY", "All five players must be connected and ready.");
+    }
+    if (room.botPolicy === "allow_bots" && players.some((p) => !p.acceptBotFill || !p.acceptedIdentityHiddenDisclosure)) {
+      throw new CommandError("BOT_FILL_NOT_ALLOWED", "Every player must accept possible AI participation and hidden identities.");
+    }
+    // Compute and validate everything before committing the transition.
+    const secret = initializeCase(casePack, players.map((p) => p.participantId));
+    const cards = players.map((p) => projectRole(secret, room.roomId, p.participantId));
+    room.secret = secret;
+    for (let index = 0; index < players.length; index += 1) players[index].personaId = cards[index].personaId;
+    room.locked = true;
+    room.phase = "ROLES";
+    room.phaseVersion += 1;
+    this.touch(room);
+    return { room, data: { phase: "ROLES" as const, version: room.version } };
+  }
+
+  acknowledge(session: GuestSession, socketId: string, command: ResumeCommand) {
+    const { room, participant } = this.member(session, command.roomId);
+    if (!participant.socketIds.has(socketId)) throw new CommandError("FORBIDDEN", "Reconnect to your seat first.");
+    if (room.phase !== "ROLES") throw new CommandError("WRONG_PHASE", "Role acknowledgment is only available during ROLES.");
+    if (!participant.roleAcknowledged) { participant.roleAcknowledged = true; this.touch(room); }
+    // Investigation scheduling is intentionally deferred in this slice.
+    return { room, data: { acknowledged: true as const } };
+  }
+
+  role(session: GuestSession, roomId: string): RoleAssignment | null {
+    const { room, participant } = this.member(session, roomId);
+    return room.secret ? projectRole(room.secret, roomId, participant.participantId) : null;
+  }
+
+  started(room: LobbyRoom): GameStarted | null {
+    if (!room.secret) return null;
+    return {
+      roomId: room.roomId, caseId: room.caseId, publicIntro: room.secret.variant.publicIntro,
+      commitment: room.secret.commitment,
+      cast: [...room.participants.values()].map((p) => {
+        const persona = casePack.personas.find((persona) => persona.id === p.personaId)!;
+        return { participantId: p.participantId, personaId: persona.id,
+          displayName: persona.displayName, publicBio: persona.publicBio };
+      }),
+    };
+  }
+
   disconnect(session: GuestSession, socketId: string) {
     if (!session.roomId) return null;
     const room = this.rooms.get(session.roomId);
@@ -129,9 +186,11 @@ export class Lobby {
     if (!room || !participant || !participant.socketIds.delete(socketId)) return null;
     if (participant.socketIds.size === 0) {
       participant.disconnectedAtMs = this.now();
-      participant.ready = false;
-      participant.acceptBotFill = false;
-      participant.acceptedIdentityHiddenDisclosure = false;
+      if (room.phase === "LOBBY") {
+        participant.ready = false;
+        participant.acceptBotFill = false;
+        participant.acceptedIdentityHiddenDisclosure = false;
+      }
       this.touch(room);
     }
     return room;
@@ -143,7 +202,7 @@ export class Lobby {
     for (const room of this.rooms.values()) {
       let changed = false;
       for (const [userId, participant] of room.participants) {
-        if (participant.disconnectedAtMs !== null && this.now() - participant.disconnectedAtMs >= RECONNECT_GRACE_MS) {
+        if (room.phase === "LOBBY" && participant.disconnectedAtMs !== null && this.now() - participant.disconnectedAtMs >= RECONNECT_GRACE_MS) {
           room.participants.delete(userId);
           changed = true;
         }
@@ -177,19 +236,24 @@ export class Lobby {
       aiPresenceDisclosure: room.botPolicy === "none" ? "HUMANS_ONLY" : "MAY_INCLUDE_AI",
       participants: participants.map((p) => ({
         participantId: p.participantId, nickname: p.nickname, avatarId: p.avatarId,
-        connected: p.socketIds.size > 0, ready: p.ready, personaId: null,
+        connected: p.socketIds.size > 0, ready: p.ready, personaId: p.personaId,
         isHost: p.userId === room.hostUserId,
       })),
-      locked: room.locked, publicClues: [], publicEvents: [], accusationMarkers: [],
-      causeOptions: [], resolutionOptions: [],
+      locked: room.locked,
+      publicClues: room.secret?.variant.evidence.filter((e) => e.release === "public_start").map(clueView) ?? [],
+      publicEvents: [], accusationMarkers: [],
+      causeOptions: room.secret ? casePack.causeOptions.map((o) => ({ ...o })) : [],
+      resolutionOptions: room.secret ? casePack.resolutionOptions.map((o) => ({ ...o })) : [],
     };
   }
 
   self(session: GuestSession, roomId: string): SelfView {
     const { participant } = this.member(session, roomId);
+    const card = this.role(session, roomId);
     return {
-      participantId: participant.participantId, personaId: null, startingMemory: null,
-      midgameMemory: null, mission: null, ability: null, myEvidence: [], myMemoryFragments: [],
+      participantId: participant.participantId, personaId: participant.personaId, startingMemory: card?.startingMemory ?? null,
+      midgameMemory: null, mission: card?.mission ?? null,
+      ability: card ? { ...card.ability, used: false } : null, myEvidence: card?.startingEvidence ?? [], myMemoryFragments: [],
       selectedAction: null, actionLocked: false, myBallot: null,
     };
   }

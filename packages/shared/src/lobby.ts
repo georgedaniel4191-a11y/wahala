@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { Ack, RoomView, SelfView, ChatMessage, RevealView } from "./contracts";
+import type { Ack, RoomView, SelfView, ChatMessage, RevealView, Phase, VerifiedClue } from "./contracts";
 
 export const CASE_ID = "screenshot_leak_001";
 export const CASE_TITLE = "Who Leaked the Screenshot?";
@@ -35,15 +35,35 @@ export type Snapshot = {
   recentChat: ChatMessage[]; reveal: RevealView | null;
 };
 
-// This implementation intentionally exposes only the approved lobby subset.
+export type RoleAssignment = {
+  roomId: string; personaId: string; startingMemory: string;
+  mission: { id: string; description: string };
+  ability: { id: string; description: string };
+  startingEvidence: VerifiedClue[];
+};
+export type GameStarted = {
+  roomId: string; caseId: string; publicIntro: string; commitment: string;
+  cast: { participantId: string; personaId: string; displayName: string; publicBio: string }[];
+};
+export type GamePhase = {
+  roomId: string; phase: Phase; round: 0 | 1 | 2 | 3;
+  version: number; deadlineAt: string | null; serverNow: string;
+};
+
+// This implementation intentionally exposes only the approved lobby and role-assignment subset.
 export interface ClientToServerEvents {
   "room:create": (p: CreateRoomCommand, ack: (a: Ack<CreateRoomResult>) => void) => void;
   "room:join": (p: JoinRoomCommand, ack: (a: Ack<JoinRoomResult>) => void) => void;
   "room:ready": (p: ReadyRoomCommand, ack: (a: Ack<{ ready: boolean }>) => void) => void;
   "state:resume": (p: ResumeCommand, ack: (a: Ack<{ resumed: true }>) => void) => void;
+  "room:start": (p: ResumeCommand, ack: (a: Ack<{ phase: "ROLES"; version: number }>) => void) => void;
+  "role:acknowledge": (p: ResumeCommand, ack: (a: Ack<{ acknowledged: true }>) => void) => void;
 }
 export interface ServerToClientEvents {
   "room:updated": (p: { roomId: string; view: RoomView }) => void;
   "state:snapshot": (p: Snapshot) => void;
   "room:closed": (p: { roomId: string; reason: "IDLE" | "HOST_CLOSED" | "ABANDONED" | "MODERATION" }) => void;
+  "game:started": (p: GameStarted) => void;
+  "role:assign": (p: RoleAssignment) => void;
+  "game:phase": (p: GamePhase) => void;
 }
