@@ -29,7 +29,7 @@ describe("server-owned investigation", () => {
     expect(deliveries).toHaveLength(5); expect(new Set(deliveries.map(d => d.owner)).size).toBe(5);
     f.advance(120_000); expect(f.game.phase).toBe("INVESTIGATION_3");
     f.advance(120_000); expect(f.game.phase).toBe("VOTING"); expect(f.game.deadline).toBe(f.now() + 45_000);
-    f.advance(999_999); expect(f.game.phase).toBe("REVEAL");
+    f.advance(999_999); expect(f.game.phase).toBe("AFTERPARTY");
     expect(f.game.ledger.filter(e => e.kind === "ROUND_SETTLED")).toHaveLength(3);
   });
   it("advances early only when every role is acknowledged", () => {

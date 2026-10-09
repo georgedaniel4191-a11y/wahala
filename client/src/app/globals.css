@@ -44,3 +44,18 @@ label:has(input:focus-visible) { outline: 2px solid #F3C261; outline-offset: 4px
 @media (prefers-reduced-motion: reduce) {
   .reveal-beat { animation: none; }
 }
+
+/* Landing and lobby skin: isolated from private game screens. */
+.game-shell:has(.game-panel) { isolation: isolate; position: relative; }
+.game-shell:has(.game-panel)::before { content: ""; position: fixed; inset: 0; z-index: -2; background: radial-gradient(ellipse at 15% 5%, #70502038, transparent 55%), radial-gradient(ellipse at 95% 65%, #61252626, transparent 55%), #0b0d12; }
+.game-shell:has(.game-panel)::after { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; opacity: .055; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Cpath fill='white' filter='url(%23n)' d='M0 0h180v180H0z'/%3E%3C/svg%3E"); }
+.game-panel h1 { font-weight: 900; letter-spacing: -.04em; text-shadow: 0 4px 25px #0009; }
+.game-panel .primary-button { min-height: 60px; border: 1px solid #ffe4a3; border-bottom: 5px solid #99702b; border-radius: 18px; font-size: 16px; background: linear-gradient(135deg,#ffe1a0,#e5a843); box-shadow: 0 8px 0 #352714,0 14px 30px #0009,0 0 28px #edb55220; }
+.game-panel .secondary-button { border-radius: 16px; border-bottom-width: 4px; background: linear-gradient(145deg,#303440,#171b24); box-shadow: 0 6px 0 #090b10,0 12px 20px #0005; }
+.game-panel .text-input { appearance: none; min-height: 64px; font-size: 18px; font-weight: 700; border-radius: 16px; background: #0e1119; border-color: #ffffff1f; box-shadow: inset 0 3px 10px #0006; transition: border-color .2s, box-shadow .2s; }
+.game-panel .text-input:focus { outline: none; border-color: #f3c261; box-shadow: 0 0 0 3px #f3c26126,0 0 22px #f3c26114,inset 0 3px 10px #0006; }
+.game-panel .avatar-choice { opacity: .5; box-shadow: 0 5px 0 #0008; }
+.game-panel .avatar-choice[data-selected="true"] { opacity: 1; transform: translateY(-3px); box-shadow: 0 0 0 4px #0b0d12,0 0 0 6px #f3c261,0 0 28px #f3c26140; }
+.case-card { border: 1px solid #f3c26170; background: linear-gradient(135deg,#f3c26115,#191d28); box-shadow: inset 0 1px 0 #ffe1a026,0 10px 30px #0005; }
+.seat-card { background: linear-gradient(135deg,#232833,#141820); box-shadow: 0 5px 14px #0004; }
+@media (prefers-reduced-motion: reduce) { .game-panel * { transition: none !important; } }

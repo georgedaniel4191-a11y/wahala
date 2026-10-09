@@ -1,11 +1,11 @@
 import express from "express";
 import cors from "cors";
 import { createServer, type IncomingMessage } from "node:http";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { Server, type Socket } from "socket.io";
 import { z } from "zod";
 import {
-  voteCastSchema, actionSubmitSchema, actionRespondSchema, dealRespondSchema, chatSendSchema, CASE_ID, CASE_TITLE, createRoomSchema, joinRoomSchema, readyRoomSchema, roomCommandSchema,
+  rematchSchema, loungeJoinSchema, loungeRequestSchema, loungeSendSchema, loungeBlockSchema, loungeReportSchema, voteCastSchema, actionSubmitSchema, actionRespondSchema, dealRespondSchema, chatSendSchema, CASE_ID, CASE_TITLE, createRoomSchema, joinRoomSchema, readyRoomSchema, roomCommandSchema,
 } from "@wahala/shared";
 import type { Ack, ClientToServerEvents, ServerToClientEvents } from "@wahala/shared";
 import { CommandError, Lobby, type LobbyRoom } from "./lobby";
@@ -15,7 +15,10 @@ import { COOKIE_NAME, Sessions, RateLimiter, type GuestSession } from "./session
 
 type SocketData = { session: GuestSession };
 type LobbySocket = Socket<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
+import { Lounge } from "./lounge";
+
 type Options = {
+  loungeEnabled?: boolean; loungeAccessCode?: string; moderatorToken?: string; production?: boolean;
   clientOrigin?: string; sessionSecret?: string; secureCookies?: boolean;
   now?: () => number; cleanupIntervalMs?: number;
 };
@@ -40,6 +43,11 @@ export function createApplication(options: Options = {}) {
   const sessions = new Sessions(options.sessionSecret ?? randomBytes(32).toString("hex"), now);
   const limiter = new RateLimiter(now);
   const lobby = new Lobby(clientOrigin, now);
+  const production = options.production ?? process.env.NODE_ENV === "production";
+  const accessCode = options.loungeAccessCode ?? process.env.LOUNGE_ACCESS_CODE;
+  const moderatorToken = options.moderatorToken ?? process.env.LOUNGE_MODERATOR_TOKEN;
+  const requested = options.loungeEnabled ?? (!production || process.env.LOUNGE_MODE === "closed_alpha");
+  const lounge = new Lounge(requested && (!production || Boolean(accessCode && moderatorToken)), accessCode, now);
   const requests = new Map<string, CachedRequest>();
   const app = express();
   app.disable("x-powered-by");
@@ -55,6 +63,12 @@ export function createApplication(options: Options = {}) {
     },
   });
 
+  app.get("/api/lounge", (_request, response) => response.json({ enabled: lounge.enabled, accessCodeRequired: Boolean(accessCode) }));
+  app.get("/api/moderation/lounge/reports", (request, response) => {
+    const expected = Buffer.from(moderatorToken ?? ""); const actual = Buffer.from((request.headers.authorization ?? "").replace(/^Bearer /, ""));
+    if (!expected.length || expected.length !== actual.length || !timingSafeEqual(expected, actual)) { response.sendStatus(403); return; }
+    response.setHeader("Cache-Control", "no-store"); response.json({ reports: lounge.reports });
+  });
   app.get("/health", (_request, response) => response.json({ status: "ok" }));
   app.get("/ready", (_request, response) => response.json({ status: "ok" }));
   app.get("/api/cases", (_request, response) => response.json({
@@ -97,7 +111,7 @@ export function createApplication(options: Options = {}) {
   function snapshot(socket: LobbySocket, room: LobbyRoom, announceStarted = true) {
     socket.emit("state:snapshot", {
       roomId: room.roomId, public: lobby.view(room),
-      self: lobby.self(socket.data.session, room.roomId), recentChat: room.investigation?.chat ?? [], reveal: room.investigation?.revealView() ?? null,
+      self: lobby.self(socket.data.session, room.roomId), recentChat: room.investigation?.chat ?? room.lobbyChat, reveal: room.investigation?.revealView() ?? null,
     });
     const started = lobby.started(room);
     if (started && announceStarted) socket.emit("game:started", started);
@@ -140,7 +154,7 @@ export function createApplication(options: Options = {}) {
 
   function command<T, D>(socket: LobbySocket, event: string, schema: z.ZodType<T>, payload: unknown,
     ack: ((response: Ack<D>) => void) | undefined,
-    execute: (value: T) => { room: LobbyRoom; data: D },
+    execute: (value: T) => { room?: LobbyRoom; data: D },
   ) {
     if (typeof ack !== "function") return;
     const session = socket.data.session;
@@ -180,7 +194,17 @@ export function createApplication(options: Options = {}) {
     try {
       // The in-memory adapter and domain mutations are synchronous: each command
       // validates and commits without an await, including the five-seat check.
+      if ((event === "chat:send" || event === "lounge:send") && !limiter.allow(`chat:${session.userId}`, 15)) throw new CommandError("RATE_LIMITED", "Please slow down. Fifteen messages per minute.");
       const { room, data } = execute(parsed.data);
+      if (!room) {
+        refreshLounge();
+        response = { ok: true, requestId, data, serverNow: new Date(now()).toISOString() };
+        requests.set(key, { fingerprint, ack: response, expiresAtMs: session.expiresAtMs }); ack(response); return;
+      }
+      if (event === "room:create" || event === "room:join") detachLounge(session, "ROOM_JOINED");
+      if (event === "room:leave") for (const peer of io.sockets.sockets.values()) {
+        if (peer.data.session.userId === session.userId) { void peer.leave(room.roomId); peer.emit("room:left", { roomId: room.roomId }); }
+      }
       if (event === "room:start") {
         const started = lobby.started(room)!;
         io.to(room.roomId).emit("game:started", started);
@@ -193,10 +217,10 @@ export function createApplication(options: Options = {}) {
         }
         io.to(room.roomId).emit("game:phase", { roomId: room.roomId, phase: room.phase,
           round: 0, version: room.version, deadlineAt: lobby.view(room).deadlineAt, serverNow: new Date(now()).toISOString() });
-      } else attachAll(session, room);
+      } else if (event !== "room:leave") attachAll(session, room);
       const sealedOnly = event === "vote:cast" && room.phase === "VOTING";
       if (sealedOnly) flush(room);
-      else if (room.investigation && event !== "room:start") synchronize(room);
+      else if ((room.investigation || event === "room:rematch") && event !== "room:start") synchronize(room);
       response = { ok: true, requestId, data, serverNow: new Date(now()).toISOString() };
       requests.set(key, { fingerprint, ack: response, expiresAtMs: session.expiresAtMs });
       ack(response);
@@ -210,6 +234,16 @@ export function createApplication(options: Options = {}) {
     ack(response);
   }
 
+  function refreshLounge() {
+    for (const peer of io.sockets.sockets.values()) {
+      if (!peer.data.session.roomId && lounge.members.get(peer.data.session.userId)?.sockets.has(peer.id)) peer.emit("lounge:snapshot", lounge.snapshot(peer.data.session.userId));
+    }
+  }
+  function detachLounge(session: GuestSession, reason: "LEFT" | "ROOM_JOINED") {
+    lounge.leave(session.userId);
+    for (const peer of io.sockets.sockets.values()) if (peer.data.session.userId === session.userId) peer.emit("lounge:left", { reason });
+    refreshLounge();
+  }
   io.on("connection", (socket) => {
     const session = socket.data.session;
     if (session.roomId) {
@@ -220,6 +254,18 @@ export function createApplication(options: Options = {}) {
         publish(room);
       } catch { session.roomId = null; }
     }
+    if (lounge.attach(session, socket.id)) refreshLounge();
+    socket.on("room:rematch", (payload, ack) => command(socket, "room:rematch", rematchSchema, payload, ack, value => lobby.rematch(session, socket.id, value)));
+    socket.on("room:leave", (payload, ack) => command(socket, "room:leave", roomCommandSchema, payload, ack, value => lobby.leave(session, socket.id, value)));
+    socket.on("lounge:join", (payload, ack) => command(socket, "lounge:join", loungeJoinSchema, payload, ack, value => {
+      lounge.join(session, socket.id, value);
+      for (const peer of io.sockets.sockets.values()) if (peer.data.session.userId === session.userId) lounge.attach(session, peer.id);
+      return { data: { joined: true as const } };
+    }));
+    socket.on("lounge:leave", (payload, ack) => command(socket, "lounge:leave", loungeRequestSchema, payload, ack, () => { lounge.member(session, socket.id); detachLounge(session, "LEFT"); return { data: { left: true as const } }; }));
+    socket.on("lounge:send", (payload, ack) => command(socket, "lounge:send", loungeSendSchema, payload, ack, value => ({ data: { messageId: lounge.send(session, socket.id, value.text).id } })));
+    socket.on("lounge:block", (payload, ack) => command(socket, "lounge:block", loungeBlockSchema, payload, ack, value => ({ data: lounge.block(session, socket.id, value.targetMemberId, value.blocked) })));
+    socket.on("lounge:report", (payload, ack) => command(socket, "lounge:report", loungeReportSchema, payload, ack, value => ({ data: lounge.report(session, socket.id, value.messageId, value.category) })));
     socket.on("room:create", (payload, ack) => command(socket, "room:create", createRoomSchema, payload, ack,
       (value) => lobby.create(session, socket.id, value)));
     socket.on("room:join", (payload, ack) => command(socket, "room:join", joinRoomSchema, payload, ack,
@@ -241,8 +287,9 @@ export function createApplication(options: Options = {}) {
     socket.on("deal:respond", (payload, ack) => command(socket, "deal:respond", dealRespondSchema, payload, ack,
       value => lobby.gameCommand(session, socket.id, "deal:respond", value)));
     socket.on("chat:send", (payload, ack) => command(socket, "chat:send", chatSendSchema, payload, ack,
-      value => lobby.gameCommand(session, socket.id, "chat:send", value)));
+      value => { const result = lobby.chat(session, socket.id, value); if ("message" in result) io.to(result.room.roomId).emit("chat:message", { roomId: result.room.roomId, message: result.message }); return result; }));
     socket.on("disconnect", () => {
+      lounge.disconnect(session.userId, socket.id); refreshLounge();
       const room = lobby.disconnect(session, socket.id);
       if (room) { room.investigation?.tick(); if (room.investigation) synchronize(room); else publish(room); }
     });
@@ -263,6 +310,7 @@ export function createApplication(options: Options = {}) {
       if (socket.data.session.expiresAtMs <= now()) socket.disconnect(true);
     }
     for (const [key, entry] of requests) { if (entry.expiresAtMs <= now()) requests.delete(key); }
+    lounge.cleanup();
     sessions.cleanup();
     limiter.cleanup();
   }
@@ -272,5 +320,5 @@ export function createApplication(options: Options = {}) {
     clearInterval(timer);
     await new Promise<void>((resolve) => io.close(() => resolve()));
   }
-  return { app, httpServer, io, lobby, cleanup, close };
+  return { app, httpServer, io, lobby, lounge, cleanup, close };
 }

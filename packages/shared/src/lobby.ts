@@ -1,3 +1,4 @@
+import type { loungeJoinSchema, loungeRequestSchema, loungeSendSchema, loungeBlockSchema, loungeReportSchema, LoungeSnapshot, LoungeMember, LoungeMessage } from "./lounge";
 import { z } from "zod";
 import type { Ack, RoomView, SelfView, ChatMessage, RevealView, Phase, VerifiedClue, ActionSelection, PublicGameEvent } from "./contracts";
 
@@ -39,6 +40,7 @@ export const actionSubmitSchema = roomCommandSchema.extend({ round: z.union([z.l
 export const actionRespondSchema = roomCommandSchema.extend({ challengeId: uuid, response: z.enum(["ANSWER", "REFUSE"]), text: statement.optional() });
 export const dealRespondSchema = roomCommandSchema.extend({ offerId: uuid, accept: z.boolean() });
 export const chatSendSchema = roomCommandSchema.extend({ channel: z.enum(["LOBBY", "GAME", "AFTERPARTY"]), text: statement });
+export const rematchSchema = roomCommandSchema.extend({ allowBots: z.boolean() });
 export const voteCastSchema = roomCommandSchema.extend({ causeId: id, principalActorParticipantId: uuid, resolutionId: id });
 
 export type CreateRoomCommand = z.infer<typeof createRoomSchema>;
@@ -69,6 +71,13 @@ export type GamePhase = {
 
 // Approved private-game subset of the normative wire contract.
 export interface ClientToServerEvents {
+  "room:rematch": (p: z.infer<typeof rematchSchema>, ack: (a: Ack<{ phase: "LOBBY"; version: number }>) => void) => void;
+  "room:leave": (p: ResumeCommand, ack: (a: Ack<{ left: true }>) => void) => void;
+  "lounge:join": (p: z.infer<typeof loungeJoinSchema>, ack: (a: Ack<{ joined: true }>) => void) => void;
+  "lounge:leave": (p: z.infer<typeof loungeRequestSchema>, ack: (a: Ack<{ left: true }>) => void) => void;
+  "lounge:send": (p: z.infer<typeof loungeSendSchema>, ack: (a: Ack<{ messageId: string }>) => void) => void;
+  "lounge:block": (p: z.infer<typeof loungeBlockSchema>, ack: (a: Ack<{ blocked: boolean }>) => void) => void;
+  "lounge:report": (p: z.infer<typeof loungeReportSchema>, ack: (a: Ack<{ reportId: string }>) => void) => void;
   "vote:cast": (p: z.infer<typeof voteCastSchema>, ack: (a: Ack<{ sealed: true }>) => void) => void;
   "action:submit": (p: z.infer<typeof actionSubmitSchema>, ack: (a: Ack<{ accepted: true; selectedAction: ActionSelection }>) => void) => void;
   "action:respond": (p: z.infer<typeof actionRespondSchema>, ack: (a: Ack<{ recorded: true }>) => void) => void;
@@ -82,6 +91,11 @@ export interface ClientToServerEvents {
   "role:acknowledge": (p: ResumeCommand, ack: (a: Ack<{ acknowledged: true }>) => void) => void;
 }
 export interface ServerToClientEvents {
+  "lounge:snapshot": (p: LoungeSnapshot) => void;
+  "lounge:presence": (p: { members: LoungeMember[] }) => void;
+  "lounge:message": (p: LoungeMessage) => void;
+  "lounge:left": (p: { reason: "LEFT" | "ROOM_JOINED" }) => void;
+  "room:left": (p: { roomId: string }) => void;
   "vote:receipt": (p: { roomId: string; sealed: true }) => void;
   "game:reveal": (p: { roomId: string; reveal: RevealView }) => void;
   "role:memory": (p: { roomId: string; midgameMemory: string }) => void;

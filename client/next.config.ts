@@ -7,6 +7,7 @@ const nextConfig: NextConfig = {
   skipTrailingSlashRedirect: true,
   async rewrites() {
     return [
+      { source: "/api/lounge", destination: `${backend}/api/lounge` },
       { source: "/api/session/:path*", destination: `${backend}/api/session/:path*` },
       { source: "/api/cases", destination: `${backend}/api/cases` },
       { source: "/socket.io/", destination: `${backend}/socket.io/` },

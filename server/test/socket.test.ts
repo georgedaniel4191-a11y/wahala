@@ -83,6 +83,59 @@ async function readyAll(players: Awaited<ReturnType<typeof fivePlayers>>) {
 }
 
 describe("real Socket.IO lobby commands", () => {
+  it("recycles the room only after the reveal deadline, resets private state and requires fresh readiness", async () => {
+    const p = await fivePlayers(); await readyAll(p);
+    const start = { requestId: randomUUID(), roomId: p.room.roomId };
+    unwrap(await command(p.members[0].socket, "room:start", start));
+    const runtime = application.lobby.rooms.get(p.room.roomId)!;
+    const commitment = runtime.secret!.commitment;
+    expect(await command(p.members[0].socket, "room:rematch", { ...start, requestId: randomUUID(), allowBots: false })).toMatchObject({ ok: false, error: { code: "WRONG_PHASE" } });
+    clock += 45_000 + 390_000 + 45_000 + 59_999; application.cleanup(); expect(runtime.phase).toBe("REVEAL");
+    clock += 1; application.cleanup(); expect(runtime.phase).toBe("AFTERPARTY");
+    expect(await command(p.members[1].socket, "room:rematch", { ...start, requestId: randomUUID(), allowBots: false })).toMatchObject({ ok: false, error: { code: "NOT_HOST" } });
+    unwrap(await command(p.members[0].socket, "chat:send", { ...start, requestId: randomUUID(), channel: "AFTERPARTY", text: "What a round" }));
+    expect(runtime.investigation!.chat.at(-1)!.text).toBe("What a round");
+    const rematch = { ...start, requestId: randomUUID(), allowBots: true };
+    const result = await command(p.members[0].socket, "room:rematch", rematch);
+    expect(unwrap(result)).toMatchObject({ phase: "LOBBY" }); expect(await command(p.members[0].socket, "room:rematch", rematch)).toEqual(result);
+    expect(runtime.secret).toBeNull(); expect(runtime.investigation).toBeNull(); expect(runtime.lobbyChat).toHaveLength(0);
+    for (const member of runtime.participants.values()) expect(member).toMatchObject({ ready: false, acceptBotFill: false, acceptedIdentityHiddenDisclosure: false, roleAcknowledged: false, personaId: null });
+    unwrap(await command(p.members[0].socket, "room:start", start)); expect(runtime.secret).toBeNull();
+    expect(await command(p.members[0].socket, "room:start", { ...start, requestId: randomUUID() })).toMatchObject({ ok: false, error: { code: "NOT_READY" } });
+    for (const member of p.members) unwrap(await command(member.socket, "room:ready", { ...start, requestId: randomUUID(), ready: true, acceptBotFill: true, acceptedIdentityHiddenDisclosure: true }));
+    unwrap(await command(p.members[0].socket, "room:start", { ...start, requestId: randomUUID() })); expect(runtime.secret!.commitment).not.toBe(commitment);
+    expect(new Set(Object.keys(runtime.secret!.canonical.personaToParticipant)).size).toBe(5);
+  });
+  it("isolates lounge chat, deduplicates sends, filters blocks and queues private reports", async () => {
+    const a = await connect(); const b = await connect();
+    const join = (nickname: string) => ({ requestId: randomUUID(), nickname, avatarId: "gold", acceptedAdultBoundary: true });
+    unwrap(await command(a.socket, "lounge:join", join("Alpha"))); unwrap(await command(b.socket, "lounge:join", join("Beta")));
+    expect(application.lounge.presence()).toHaveLength(2);
+    await connect(a.cookie); expect(application.lounge.presence()).toHaveLength(2);
+    const send = { requestId: randomUUID(), text: "Hello lounge" };
+    const result = await command<{messageId: string}>(a.socket, "lounge:send", send); expect(await command(a.socket, "lounge:send", send)).toEqual(result); expect(application.lounge.messages).toHaveLength(1);
+    const sender = application.lounge.messages[0].fromMemberId;
+    unwrap(await command(b.socket, "lounge:block", { requestId: randomUUID(), targetMemberId: sender, blocked: true }));
+    const bUser = [...application.lounge.members.values()].find(m => m.nickname === "Beta")!.userId;
+    expect(application.lounge.snapshot(bUser).messages).toHaveLength(0);
+    unwrap(await command(b.socket, "lounge:report", { requestId: randomUUID(), messageId: unwrap(result).messageId, category: "SPAM" })); expect(application.lounge.reports).toHaveLength(1);
+    expect((await fetch(`${url}/api/moderation/lounge/reports`)).status).toBe(403);
+    await create(a.socket); expect(application.lounge.presence()).toHaveLength(1);
+    expect(await command(a.socket, "lounge:send", { requestId: randomUUID(), text: "Private room" })).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    expect(await command(b.socket, "chat:send", { requestId: randomUUID(), roomId: a.snapshots.at(-1)!.roomId, channel: "LOBBY", text: "Intrusion" })).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    for (let i = 0; i < 15; i++) await command(b.socket, "lounge:send", { requestId: randomUUID(), text: "Hi" });
+    expect(await command(b.socket, "lounge:send", { requestId: randomUUID(), text: "Too fast" })).toMatchObject({ ok: false, error: { code: "RATE_LIMITED" } });
+  });
+
+  it("leaving the lobby detaches every owned tab and transfers the host", async () => {
+    const a = await connect(); const b = await connect(); const room = await create(a.socket);
+    unwrap(await command(b.socket, "room:join", { requestId: randomUUID(), code: room.code, nickname: "Next host", avatarId: "mint" }));
+    const tab = await connect(a.cookie); const left: unknown[] = []; tab.socket.on("room:left", value => left.push(value));
+    unwrap(await command(a.socket, "room:leave", { requestId: randomUUID(), roomId: room.roomId }));
+    await expect.poll(() => left.length).toBe(1);
+    const runtime = application.lobby.rooms.get(room.roomId)!; expect(runtime.participants.size).toBe(1); expect(application.lobby.view(runtime).participants[0].isHost).toBe(true);
+    expect(await command(tab.socket, "chat:send", { requestId: randomUUID(), roomId: room.roomId, channel: "LOBBY", text: "Not a member" })).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+  });
   it("starts only for the host with five connected ready owners, and locks the roster", async () => {
     const players = await fivePlayers();
     const { members, room } = players;
@@ -301,7 +354,7 @@ describe("real Socket.IO lobby commands", () => {
     const back = await connect(players.members[3].cookie);
     await expect.poll(() => back.snapshots.length).toBeGreaterThan(0);
     expect(back.snapshots.at(-1)!.reveal).toEqual(reveal); expect(back.snapshots.at(-1)!.self.myBallot).toEqual(correct);
-    clock += 60_000; application.cleanup(); expect(runtime.phase).toBe("REVEAL");
+    clock += 60_000; application.cleanup(); expect(runtime.phase).toBe("AFTERPARTY");
     expect(runtime.investigation!.deadline).toBeNull();
     expect(reveals.map(r => r.length)).toEqual([1, 1, 1, 1, 1]);
     expect(runtime.investigation!.ledger.filter(e => e.kind === "BALLOT_SEALED")).toHaveLength(5);

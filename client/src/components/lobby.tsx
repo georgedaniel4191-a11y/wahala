@@ -2,13 +2,19 @@
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { motion, MotionConfig } from "framer-motion";
+import { Crown, Fingerprint, ShieldCheck, Sparkles } from "lucide-react";
+
+const entrance = { hidden: { opacity: 0, y: 18 }, visible: { opacity: 1, y: 0, transition: { duration: 0.4 } } };
+const stagger = { hidden: {}, visible: { transition: { staggerChildren: 0.09 } } };
 import { AVATARS, CASE_ID, CASE_TITLE, createRoomSchema, joinRoomSchema, SEAT_COUNT } from "@wahala/shared";
-import type { BotPolicy, RoomView, Snapshot, RoleAssignment, GameStarted, SelfView, RevealView } from "@wahala/shared";
+import type { BotPolicy, RoomView, Snapshot, RoleAssignment, GameStarted, SelfView, RevealView, ChatMessage, LoungeSnapshot } from "@wahala/shared";
 import { openLobbyConnection, sendCommand, type LobbyConnection } from "@/lib/lobby-connection";
 import SecretRole from "./secret-role";
 import Investigation from "./investigation";
 import Voting from "./voting";
 import Reveal from "./reveal";
+import { Afterparty, GistLounge, RoomChat } from "./social";
 
 const STORAGE_KEY = "wahala:lobby";
 const avatarColors: Record<string, string> = {
@@ -38,6 +44,8 @@ export default function Lobby() {
   const [self, setSelf] = useState<SelfView | null>(null);
   const [role, setRole] = useState<RoleAssignment | null>(null);
   const [started, setStarted] = useState<GameStarted | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [lounge, setLounge] = useState<LoungeSnapshot | null>(null);
   const [acknowledged, setAcknowledged] = useState(false);
 
   useEffect(() => {
@@ -47,12 +55,13 @@ export default function Lobby() {
     const clearRoom = () => {
       roomRef.current = null;
       setRoom(null); setParticipantId(null); setConsent(false);
-      setReveal(null); setSelf(null); setRole(null); setStarted(null); setAcknowledged(false);
+      setMessages([]); setReveal(null); setSelf(null); setRole(null); setStarted(null); setAcknowledged(false);
       localStorage.removeItem(STORAGE_KEY);
     };
     const update = (view: RoomView) => {
       const current = roomRef.current;
       if (current && current.roomId === view.roomId && current.version > view.version) return;
+      if (view.phase === "LOBBY" && current?.phase !== "LOBBY") { setRole(null); setStarted(null); setReveal(null); setAcknowledged(false); setConsent(false); setMessages([]); }
       roomRef.current = view;
       setRoom(view);
       localStorage.setItem(STORAGE_KEY, view.roomId);
@@ -69,9 +78,13 @@ export default function Lobby() {
           update(snapshot.public);
           setParticipantId(snapshot.self.participantId);
           setSelf(snapshot.self);
-          setReveal(snapshot.reveal);
+          setReveal(snapshot.reveal); setMessages(snapshot.recentChat);
           setError("");
         });
+        socket.on("room:left", clearRoom);
+        socket.on("lounge:snapshot", setLounge);
+        socket.on("lounge:left", () => setLounge(null));
+        socket.on("chat:message", ({ roomId, message }) => { if (roomId === roomRef.current?.roomId) setMessages(v => v.some(m => m.id === message.id) ? v : [...v, message].slice(-100)); });
         socket.on("room:updated", ({ view }) => update(view));
         socket.on("game:started", (value) => setStarted(value));
         socket.on("game:reveal", value => { if (value.roomId === roomRef.current?.roomId) setReveal(value.reveal); });
@@ -96,7 +109,7 @@ export default function Lobby() {
         socket.on("disconnect", () => {
           setConnected(false); setConnection("Reconnecting to your seat…"); setConsent(false);
           // Never display a private dossier while its connection is stale.
-          setReveal(null); setRole(null); setSelf(null);
+          setLounge(null); setReveal(null); setRole(null); setSelf(null);
         });
         socket.on("connect_error", () => {
           setConnected(false); setConnecting(false);
@@ -168,6 +181,14 @@ export default function Lobby() {
     finally { setBusy(false); }
   }
 
+  async function leaveRoom() {
+    if (!room || !socketRef.current?.connected || busy) return;
+    setBusy(true); setError("");
+    try { const ack = await sendCommand(socketRef.current, "room:leave", { requestId: crypto.randomUUID(), roomId: room.roomId }); if (!ack.ok) setError(ack.error.message); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "Could not leave the room."); }
+    finally { setBusy(false); }
+  }
+
   async function copyInvite() {
     if (!room?.code) return;
     const url = new URL(window.location.origin);
@@ -177,13 +198,15 @@ export default function Lobby() {
   }
 
   return (
-    <main className={`mx-auto flex min-h-screen w-full max-w-lg flex-col px-5 py-8 sm:px-8 ${room?.phase === "ROLES" ? "bg-[#090C11]" : ""}`}>
+    <MotionConfig reducedMotion="user"><main className={`game-shell mx-auto flex min-h-screen w-full max-w-lg flex-col px-5 py-8 sm:px-8 ${room?.phase === "ROLES" ? "bg-[#090C11]" : ""}`}>
       <header className="mb-10 flex items-center justify-between gap-3">
         <Link href="/" className="text-2xl font-black tracking-[0.15em] text-gold" aria-label="Wahala home">WAHALA<span className="text-coral">.</span></Link>
         <span className="text-xs text-muted" role="status"><span className={`mr-2 inline-block h-2 w-2 rounded-full ${connected ? "bg-mint" : "bg-coral"}`} />{connection}</span>
       </header>
 
-      {room?.phase === "REVEAL" ? (
+      {room?.phase === "AFTERPARTY" ? (
+        self && activeSocket && connected ? <Afterparty room={room} self={self} socket={activeSocket} messages={messages} result={reveal}>{reveal && <Reveal room={room} self={self} started={started} reveal={reveal} />}</Afterparty> : <p role="status">Reconnecting to the afterparty…</p>
+      ) : room?.phase === "REVEAL" ? (
         reveal && self && connected ? <Reveal key={room.roomId} room={room} self={self} started={started} reveal={reveal} /> : <p role="status">Opening the case results…</p>
       ) : room?.phase === "VOTING" ? (
         self && connected && activeSocket ? <Voting room={room} self={self} started={started} socket={activeSocket} connected={connected} /> : <p role="status">Reconnecting to your sealed ballot…</p>
@@ -195,22 +218,22 @@ export default function Lobby() {
           connected={connected} busy={busy} acknowledged={acknowledged} onProceed={acknowledgeRole} />
           : <p role="status" className="rounded-2xl border border-divider bg-surface p-6 text-center">{connected ? "Opening your private dossier…" : "Reconnecting to your secret role…"}</p>
       ) : room ? (
-        <section aria-labelledby="lobby-heading" className="space-y-6">
-          <div><p className="eyebrow">Private lobby</p><h1 id="lobby-heading" className="mt-2 text-3xl font-bold leading-tight">{room.title}</h1>
-            <p className="mt-3 text-muted">Five characters. Five secrets.</p></div>
+        <motion.section variants={stagger} initial="hidden" animate="visible" aria-labelledby="lobby-heading" className="game-panel space-y-6">
+          <motion.div variants={entrance}><p className="eyebrow flex items-center gap-2"><Crown size={16} aria-hidden="true" /> Private lobby</p><h1 id="lobby-heading" className="mt-2 text-3xl font-bold leading-tight">{room.title}</h1>
+            <p className="mt-3 text-muted">Five characters. Five secrets.</p></motion.div>
           <div className="flex items-center justify-between rounded-2xl border border-divider bg-surface p-4">
             <div><p className="text-xs text-muted">ROOM CODE</p><p data-testid="room-code" className="mt-1 font-mono text-2xl tracking-[0.2em] text-gold">{room.code}</p></div>
-            <button type="button" className="secondary-button" onClick={copyInvite}>Copy invite</button>
+            <motion.button variants={entrance} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.95 }} type="button" className="secondary-button" onClick={copyInvite}>Copy invite</motion.button>
           </div>
           <ol aria-label="Lobby seats" className="space-y-3">
             {Array.from({ length: SEAT_COUNT }, (_, index) => {
               const player = room.participants[index];
-              return <li key={player?.participantId ?? `empty-${index}`} className="flex min-h-20 items-center gap-3 rounded-2xl border border-divider bg-surface px-4 py-3">
+              return <motion.li variants={entrance} layout key={player?.participantId ?? `empty-${index}`} className="seat-card flex min-h-20 items-center gap-3 rounded-2xl border border-divider bg-surface px-4 py-3">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-divider text-lg font-bold" style={player ? { backgroundColor: avatarColors[player.avatarId], color: "#11151B" } : undefined} aria-hidden="true">{player ? player.nickname.slice(0, 1).toUpperCase() : "+"}</span>
                 <div className="min-w-0 flex-1"><p className="truncate font-semibold">{player ? `${player.nickname}${player.participantId === participantId ? " (you)" : ""}` : "Open seat"}</p>
                   <p className="mt-1 text-xs text-muted">{player ? `${player.isHost ? "Host · " : ""}${player.connected ? "In lobby" : "Reconnecting · seat reserved"}` : "Invite a friend"}</p></div>
                 {player && <span data-testid="ready-state" className={`shrink-0 text-sm ${player.ready ? "text-mint" : "text-muted"}`}>{player.ready ? "Ready ✓" : "Not ready"}</span>}
-              </li>;
+              </motion.li>;
             })}
           </ol>
           <div className="rounded-2xl border border-divider bg-surface p-4 text-sm">
@@ -220,39 +243,42 @@ export default function Lobby() {
               <p className="mt-3 text-muted">Bot fill will be added in a later step.</p>
             </>}
           </div>
-          <button type="button" className={me?.ready ? "secondary-button w-full" : "primary-button w-full"} onClick={toggleReady}
+          <motion.button variants={entrance} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.95 }} type="button" className={me?.ready ? "secondary-button w-full" : "primary-button w-full"} onClick={toggleReady}
             disabled={!connected || !me || busy || (!me.ready && room.botPolicy === "allow_bots" && !consent)}>
             {busy ? "Updating…" : me?.ready ? "Not ready" : "Ready"}
-          </button>
-          {me?.isHost && <button type="button" className="primary-button w-full" onClick={startGame} disabled={!connected || busy || !everyoneReady}>Start case</button>}
+          </motion.button>
+          {me?.isHost && <motion.button variants={entrance} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.95 }} type="button" className="primary-button w-full" onClick={startGame} disabled={!connected || busy || !everyoneReady}>Start case</motion.button>}
+          {activeSocket && <RoomChat socket={activeSocket} room={room} messages={messages} />}
+          <motion.button variants={entrance} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.95 }} className="secondary-button w-full" disabled={busy || !connected} onClick={leaveRoom}>Return to Gist Lounge</motion.button>
           <p className="text-center text-sm text-muted" role="status">{everyoneReady
             ? "Everyone is ready. The host can start the case."
             : "Waiting for five players to be ready."}</p>
-        </section>
+        </motion.section>
       ) : (
-        <section aria-labelledby="welcome-heading" className="space-y-7">
-          <div><p className="eyebrow">Everybody knows something.</p><h1 id="welcome-heading" className="mt-3 text-4xl font-bold leading-tight">Nobody knows<br />everything.</h1><p className="mt-4 text-muted">Bring your people. Get your seat.</p></div>
+        <motion.section variants={stagger} initial="hidden" animate="visible" aria-labelledby="welcome-heading" className="game-panel space-y-7">
+          <motion.div variants={entrance}><p className="eyebrow flex items-center gap-2"><Sparkles size={16} aria-hidden="true" /> Everybody knows something.</p><h1 id="welcome-heading" className="mt-3 text-5xl font-bold leading-[1.04]">Nobody knows<br />everything.</h1><p className="mt-4 text-muted">Bring your people. Get your seat.</p></motion.div>
           <div className="grid grid-cols-2 gap-2 rounded-xl bg-surface p-1" aria-label="Lobby action">
-            <button type="button" aria-pressed={tab === "create"} className={`tab-button ${tab === "create" ? "bg-raised text-white" : "text-muted"}`} onClick={() => setTab("create")}>Create room</button>
-            <button type="button" aria-pressed={tab === "join"} className={`tab-button ${tab === "join" ? "bg-raised text-white" : "text-muted"}`} onClick={() => setTab("join")}>Join room</button>
+            <motion.button variants={entrance} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.95 }} type="button" aria-pressed={tab === "create"} className={`tab-button ${tab === "create" ? "bg-raised text-white" : "text-muted"}`} onClick={() => setTab("create")}>Create room</motion.button>
+            <motion.button variants={entrance} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.95 }} type="button" aria-pressed={tab === "join"} className={`tab-button ${tab === "join" ? "bg-raised text-white" : "text-muted"}`} onClick={() => setTab("join")}>Join room</motion.button>
           </div>
-          <form onSubmit={enter} className="space-y-5">
-            <label className="block text-sm font-medium">Your nickname<input name="nickname" className="text-input mt-2" value={nickname} onChange={(event) => setNickname(event.target.value)} maxLength={24} required autoComplete="nickname" placeholder="What should we call you?" /></label>
-            <fieldset><legend className="mb-3 text-sm font-medium">Choose your avatar</legend><div className="flex gap-3">{AVATARS.map((avatar) => <label key={avatar} className="relative flex h-11 w-11 cursor-pointer items-center justify-center rounded-full border-2" style={{ backgroundColor: avatarColors[avatar], borderColor: avatarId === avatar ? "white" : "transparent" }}>
-              <input type="radio" name="avatar" value={avatar} checked={avatarId === avatar} onChange={() => setAvatarId(avatar)} className="sr-only" aria-label={`${avatar} avatar`} /><span className="text-lg font-bold text-background" aria-hidden="true">{avatarId === avatar ? "✓" : ""}</span></label>)}</div></fieldset>
+          <motion.form variants={stagger} onSubmit={enter} className="space-y-6">
+            <motion.label variants={entrance} className="block text-sm font-bold">Your nickname<input name="nickname" className="text-input mt-2" value={nickname} onChange={(event) => setNickname(event.target.value)} maxLength={24} required autoComplete="nickname" placeholder="What should we call you?" /></motion.label>
+            <motion.fieldset variants={entrance}><legend className="mb-3 text-sm font-medium">Choose your avatar</legend><div className="flex gap-3">{AVATARS.map((avatar) => <label key={avatar} className="avatar-choice relative flex h-14 w-14 cursor-pointer items-center justify-center rounded-full border-2 transition-all duration-200" data-selected={avatarId === avatar} style={{ backgroundColor: avatarColors[avatar], borderColor: avatarId === avatar ? "#F3C261" : "transparent" }}>
+              <input type="radio" name="avatar" value={avatar} checked={avatarId === avatar} onChange={() => setAvatarId(avatar)} className="sr-only" aria-label={`${avatar} avatar`} /><span className="text-lg font-bold text-background" aria-hidden="true">{avatarId === avatar ? "✓" : ""}</span></label>)}</div></motion.fieldset>
             {tab === "join" ? <label className="block text-sm font-medium">Room code<input name="code" className="text-input mt-2 font-mono uppercase tracking-widest" value={code} onChange={(event) => setCode(event.target.value.toUpperCase())} maxLength={6} minLength={6} required autoComplete="off" placeholder="ABC234" /></label> : <>
-              <div className="rounded-2xl border border-divider bg-surface p-4"><p className="text-xs text-gold">FIRST CASE</p><p className="mt-2 font-semibold">{CASE_TITLE}</p></div>
+              <motion.div variants={entrance} className="case-card rounded-2xl p-5"><p className="flex items-center gap-2 text-xs font-bold tracking-widest text-gold"><Fingerprint size={18} aria-hidden="true" /> CASE 001 · SELECTED</p><p className="mt-3 text-xl font-black">{CASE_TITLE}</p><p className="mt-2 flex items-center gap-2 text-xs text-muted"><ShieldCheck size={14} aria-hidden="true" /> Five players · Private secrets</p></motion.div>
               <label className="block text-sm font-medium">Room preference<select className="text-input mt-2" value={botPolicy} onChange={(event) => setBotPolicy(event.target.value as BotPolicy)}><option value="none">Humans only</option><option value="allow_bots">Allow AI (consent required)</option></select></label>
               {botPolicy === "allow_bots" && <p className="text-sm text-muted">Each player must accept possible AI participation and hidden identities before becoming ready. Bot fill is coming later.</p>}
             </>}
-            <button type="submit" className="primary-button w-full" disabled={!connected || connecting || busy}>{busy ? "Entering…" : tab === "create" ? "Create private room" : "Join private room"}</button>
-          </form>
-        </section>
+            <motion.button variants={entrance} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.95 }} type="submit" className="primary-button w-full" disabled={!connected || connecting || busy}>{busy ? "Entering…" : tab === "create" ? "Create private room" : "Join private room"}</motion.button>
+          </motion.form>
+          {activeSocket && <GistLounge socket={activeSocket} snapshot={lounge} nickname={nickname} avatarId={avatarId} />}
+        </motion.section>
       )}
       {error && <p role="alert" className="mt-5 rounded-xl border border-coral/50 bg-coral/10 p-4 text-sm text-coral">{error}</p>}
       {notice && <p role="status" className="mt-4 text-sm text-gold">{notice}</p>}
-      {!connected && !connecting && <button type="button" className="secondary-button mt-4" onClick={() => { setConnecting(true); setError(""); setConnection("Connecting…"); setConnectionAttempt((value) => value + 1); }}>Reconnect</button>}
+      {!connected && !connecting && <motion.button variants={entrance} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.95 }} type="button" className="secondary-button mt-4" onClick={() => { setConnecting(true); setError(""); setConnection("Connecting…"); setConnectionAttempt((value) => value + 1); }}>Reconnect</motion.button>}
       <footer className="mt-auto pt-10 text-center text-xs text-muted">You know what you did. You don&apos;t know what it caused.</footer>
-    </main>
+    </main></MotionConfig>
   );
 }

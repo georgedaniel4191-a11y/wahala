@@ -1,0 +1,10 @@
+import { z } from "zod";
+import { AVATARS } from "./lobby";
+export const loungeRequestSchema = z.strictObject({ requestId: z.uuid({ version: "v4" }) });
+export const loungeJoinSchema = loungeRequestSchema.extend({ nickname: z.string().trim().min(1).max(24).regex(/^[\p{L}\p{N} _.'-]+$/u), avatarId: z.enum(AVATARS), acceptedAdultBoundary: z.literal(true), accessCode: z.string().max(128).optional() });
+export const loungeSendSchema = loungeRequestSchema.extend({ text: z.string().trim().min(1).max(500).refine(s => ![...s].some(c => c.charCodeAt(0) < 32 && c !== "\n" && c !== "\t" && c !== "\r"), "Remove control characters.") });
+export const loungeBlockSchema = loungeRequestSchema.extend({ targetMemberId: z.uuid({ version: "v4" }), blocked: z.boolean() });
+export const loungeReportSchema = loungeRequestSchema.extend({ messageId: z.uuid({ version: "v4" }), category: z.enum(["HARASSMENT", "SPAM", "HATE", "PRIVACY", "OTHER"]) });
+export type LoungeMember = { memberId: string; nickname: string; avatarId: string };
+export type LoungeMessage = { id: string; fromMemberId: string; nickname: string; text: string; createdAt: string };
+export type LoungeSnapshot = { selfMemberId: string; members: LoungeMember[]; messages: LoungeMessage[]; blockedMemberIds: string[] };

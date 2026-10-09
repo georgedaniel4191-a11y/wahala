@@ -76,8 +76,18 @@ test("five private ballots reveal the three chapters, missions and chronological
     await pages[0].getByRole("button", { name: "2. Truth", exact: true }).click();
     await expect(pages[0].getByTestId("revealed-actor")).toHaveText("Tobi");
     await serverClock.advance(60_000);
-    await expect(pages[0].getByRole("heading", { name: "The Truth", exact: true })).toBeVisible();
-    await expect(pages[0].getByRole("button", { name: /Afterparty|Gist Lounge/ })).toHaveCount(0);
+    await expect(pages[0].getByRole("heading", { name: "The Afterparty", exact: true })).toBeVisible();
+    await pages[0].screenshot({ path: "work/afterparty-mobile.png", fullPage: true });
+    await pages[0].getByRole("button", { name: "Review match results" }).click();
+    await expect(pages[0].getByRole("heading", { name: "The Accusations" })).toBeVisible();
+    await pages[0].getByLabel("Message", { exact: true }).fill("Those receipts were wild.");
+    await pages[0].getByRole("button", { name: "Send message", exact: true }).click();
+    await expect(pages[1].getByRole("list", { name: "Room messages" })).toContainText("Those receipts were wild.");
+    await pages[0].getByRole("button", { name: "Play Again", exact: true }).click();
+    await pages[0].getByRole("button", { name: "Confirm rematch", exact: true }).click();
+    for (const page of pages) await expect(page.getByRole("heading", { name: "Who Leaked the Screenshot?", exact: true })).toBeVisible();
+    await expect(pages[0].getByTestId("ready-state").filter({ hasText: "Not ready" })).toHaveCount(5);
+    await expect(pages[0].getByRole("list", { name: "Room messages" })).toBeEmpty();
   } finally { await Promise.all(contexts.map(c => c.close())); }
 });
 

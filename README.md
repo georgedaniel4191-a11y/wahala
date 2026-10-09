@@ -1,4 +1,4 @@
-# Wahala — private case, sealed ballots and the Big Reveal
+# Wahala — private cases, the Big Reveal and Afterparty
 
 Next.js, TypeScript, Tailwind CSS, and a long-running Express/Socket.IO backend.
 This slice implements room creation, joining, ready/unready, seat recovery, and
@@ -6,7 +6,9 @@ secure story initialization / role assignment. The host starts the case when all
 five owners are connected and ready. The room enters `ROLES`; each owner receives
 only their authored opening card. The server then runs three timed investigation
 rounds with settlement, evidence, abilities and private memory, followed by sealed
-voting and the staged Big Reveal. Afterparty, Gist Lounge and bot fill are deferred.
+voting, the staged Big Reveal, Afterparty chat and same-room rematches. The opt-in
+Gist Lounge is available locally or behind a production closed-alpha gate; bot fill
+is deferred. Landing and Lobby use Framer Motion and a charcoal/amber game skin.
 
 ## Run locally
 
@@ -175,20 +177,24 @@ return their original ACK; reuse with different validated data/event is rejected
   Chapters are skippable, keyboard accessible and support reduced motion. Claims
   remain distinct from verified facts; no automatic lie detection is invented.
 - The reveal presentation has the spec's 60-second server deadline. On expiry the
-  server stays in REVEAL with `deadlineAt: null`; results remain readable. There is
-  no Afterparty, Gist Lounge, rematch or identity epilogue in this slice. Once a
-  canonical reveal exists, subsequent disconnects cannot cancel or rescore it.
+  server enters AFTERPARTY with `deadlineAt: null`; results remain available for review.
+  Room chat is separate from the opt-in lounge. The host can confirm a rematch:
+  the same room and guests return to LOBBY, with fresh readiness and AI consent,
+  cleared private match state, and a new seed at the next start. Identity epilogues
+  remain deferred. Disconnects cannot cancel or rescore the canonical result.
 - The exemplar has one authored variant (`wrong_attachment_v1`). No new variants or
   character cards are invented; content publication/solvability review remains future work.
-- Leave, kick, lock controls, changing bot policy, lobby/afterparty chat, and fill are deferred.
-  Closing all tabs and waiting for seat expiry releases membership.
+- Leave is available from LOBBY and AFTERPARTY and clears all owned tabs. Lobby and
+  Afterparty chat are enabled. Kick, lock controls, in-lobby bot policy changes and fill
+  remain deferred. See [the lounge extension](docs/lounge-contract.md) for admission,
+  block/report controls and moderator review instructions.
 - **State is in memory.** Guest sessions, request receipts, and rooms are lost on server
   restart; the client returns to entry when its previous seat is unavailable. This is
   a local development foundation, not the spec's PostgreSQL-backed production recovery.
 
 ## Environment and deployment
 
-The Next.js client proxies `/api/session/*` and `/socket.io/` to the backend, so
+The Next.js client proxies `/api/session/*`, `/api/cases`, `/api/lounge` and `/socket.io/` to the backend, so
 session cookies and socket transport are same-origin in the browser. Next.js is
 configured to preserve Engine.IO's required trailing slash. Polling can upgrade to
 WebSocket; both remain cookie-authenticated. Same-origin polling validates Referer
@@ -199,6 +205,9 @@ when the browser omits Origin; mismatched Origin is always rejected.
   set before building the client when the backend address differs.
 - `SESSION_SECRET`: server-only signing key; required with at least 32 characters
   when `NODE_ENV=production`. Development uses a random per-process key.
+- `LOUNGE_MODE=closed_alpha`, `LOUNGE_ACCESS_CODE`, `LOUNGE_MODERATOR_TOKEN`: all three
+  are required to open the lounge in production. The moderator report route is
+  server-only; keep its token out of client configuration.
 - `COOKIE_SECURE`: defaults to true in production and false locally. Keep true behind HTTPS.
 
 The guest cookie is opaque, signed, HttpOnly, SameSite=Lax, and valid for 24 hours.

@@ -87,7 +87,8 @@ export class Investigation {
   acknowledge() { if (this.phase === "ROLES" && this.seats.every(s => s.roleAcknowledged)) this.beginRound(1, this.now()); }
   tick() {
     if (this.phase === "ABANDONED") return;
-    if (this.phase === "REVEAL") { this.pauseReveal(); return; }
+    if (this.phase === "REVEAL") { this.advanceAfterparty(); return; }
+    if (this.phase === "AFTERPARTY") return;
     if (this.seats.filter(s => s.socketIds.size > 0).length < 2) {
       this.belowMinimumSince ??= this.now();
       if (this.now() - this.belowMinimumSince > 120_000) {
@@ -103,7 +104,7 @@ export class Investigation {
       else if (phase.startsWith("SETTLING_")) this.finishSettlement(at);
       else if (phase === "TWIST") this.beginRound(2, at);
       else if (phase === "VOTING") this.finishVoting(at);
-      else if (phase === "REVEAL") this.pauseReveal();
+      else if (phase === "REVEAL") this.advanceAfterparty();
       else break;
     }
   }
@@ -284,14 +285,14 @@ export class Investigation {
     this.send("game:reveal", { roomId: this.roomId, reveal });
     // Revealed results remain readable; Afterparty is deliberately deferred.
   }
-  private pauseReveal() {
+  private advanceAfterparty() {
     if (this.deadline !== null && this.now() >= this.deadline) {
-      this.deadline = null; this.record("REVEAL_PRESENTATION_COMPLETE", null, {}); this.changed(this.phase, false);
+      this.transition("AFTERPARTY", this.deadline, null);
     }
   }
-  revealView(): RevealView | null { return this.phase === "REVEAL" ? this.outcome : null; }
+  revealView(): RevealView | null { return this.phase === "REVEAL" || this.phase === "AFTERPARTY" ? this.outcome : null; }
   sendChat(actor: string, channel: ChatMessage["channel"], text: string) {
-    if (channel !== "GAME" || !(this.phase.startsWith("INVESTIGATION_") || this.phase.startsWith("SETTLING_") || this.phase === "TWIST")) throw new CommandError("WRONG_PHASE", "Game statements are available during investigation.");
+    if (!((channel === "AFTERPARTY" && this.phase === "AFTERPARTY") || (channel === "GAME" && (this.phase.startsWith("INVESTIGATION_") || this.phase.startsWith("SETTLING_") || this.phase === "TWIST")))) throw new CommandError("WRONG_PHASE", "Game statements are available during investigation.");
     const message: ChatMessage = { id: randomUUID(), roomId: this.roomId, channel, fromParticipantId: actor, text, createdAt: new Date(this.now()).toISOString() };
     this.chat.push(message); if (this.chat.length > 100) this.chat.shift();
     this.record("CHAT", actor, message); this.send("chat:message", { roomId: this.roomId, message }); this.changed(this.phase, false);

@@ -57,9 +57,9 @@ describe("sealed voting and canonical reveal", () => {
     expect(Object.isFrozen(reveal)).toBe(true); expect(Object.isFrozen(reveal.missions)).toBe(true);
     expect(f.game.drain().filter(d => d.event === "game:reveal")).toHaveLength(1);
     expect(() => f.game.vote(f.ids[4], f.correct)).toThrow("during VOTING");
-    f.advance(60_000); expect(f.game.phase).toBe("REVEAL"); expect(f.game.deadline).toBeNull();
+    f.advance(60_000); expect(f.game.phase).toBe("AFTERPARTY"); expect(f.game.deadline).toBeNull();
     f.seats.forEach(s => s.socketIds.clear()); f.advance(999_999);
-    expect(f.game.phase).toBe("REVEAL"); expect(f.game.revealView()).toBe(reveal);
+    expect(f.game.phase).toBe("AFTERPARTY"); expect(f.game.revealView()).toBe(reveal);
     expect(f.game.drain().filter(d => d.event === "game:reveal")).toHaveLength(0);
   });
   it("does not reveal at 44,999ms; missing and disconnected seats abstain at 45,000ms", () => {
@@ -82,7 +82,7 @@ describe("sealed voting and canonical reveal", () => {
   });
   it("catches up through voting and reveal without fabricated ballots or repeated reveal", () => {
     const f = fixture(); f.advance(45_000 + 390_000 + 45_000 + 60_000);
-    expect(f.game.phase).toBe("REVEAL"); expect(f.game.deadline).toBeNull();
+    expect(f.game.phase).toBe("AFTERPARTY"); expect(f.game.deadline).toBeNull();
     expect(f.game.revealView()!.groupSuccess).toBe(false);
     expect(f.game.drain().filter(d => d.event === "game:reveal")).toHaveLength(1);
   });

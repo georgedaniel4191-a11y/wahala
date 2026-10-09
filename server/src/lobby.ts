@@ -1,6 +1,6 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { CASE_ID, CASE_TITLE, SEAT_COUNT } from "@wahala/shared";
-import type { BotPolicy, CreateRoomCommand, JoinRoomCommand, ReadyRoomCommand, ResumeCommand, RoomView, SelfView, GameStarted, RoleAssignment, Phase, ClientToServerEvents } from "@wahala/shared";
+import type { BotPolicy, CreateRoomCommand, JoinRoomCommand, ReadyRoomCommand, ResumeCommand, RoomView, SelfView, GameStarted, RoleAssignment, Phase, ClientToServerEvents, ChatMessage } from "@wahala/shared";
 import type { GuestSession } from "./sessions";
 import { initializeCase, loadCasePack, projectRole, clueView, type CaseInitialization } from "./case";
 
@@ -25,7 +25,7 @@ export type LobbyRoom = {
   roomId: string; code: string; hostUserId: string; caseId: string;
   phase: Phase; version: number; phaseVersion: number; locked: boolean; botPolicy: BotPolicy;
   lastActivityAtMs: number; participants: Map<string, Participant>;
-  secret: CaseInitialization | null; investigation: Investigation | null;
+  secret: CaseInitialization | null; investigation: Investigation | null; lobbyChat: ChatMessage[];
 };
 
 export class Lobby {
@@ -64,7 +64,7 @@ export class Lobby {
     this.checkAvailable(session);
     const room: LobbyRoom = {
       roomId: randomUUID(), code: this.newCode(), hostUserId: session.userId,
-      caseId: command.caseId, phase: "LOBBY", version: 1, phaseVersion: 0, locked: false, secret: null, investigation: null,
+      caseId: command.caseId, phase: "LOBBY", version: 1, phaseVersion: 0, locked: false, secret: null, investigation: null, lobbyChat: [],
       botPolicy: command.botPolicy, lastActivityAtMs: this.now(), participants: new Map(),
     };
     const participant = this.add(room, session, socketId, command);
@@ -165,6 +165,37 @@ export class Lobby {
     return { room, data: { acknowledged: true as const } };
   }
 
+  rematch(session: GuestSession, socketId: string, command: Parameters<ClientToServerEvents["room:rematch"]>[0]) {
+    const { room, participant } = this.member(session, command.roomId);
+    if (!participant.socketIds.has(socketId)) throw new CommandError("FORBIDDEN", "Reconnect to your seat first.");
+    if (room.hostUserId !== session.userId) throw new CommandError("NOT_HOST", "Only the host can request a rematch.");
+    if (room.phase !== "AFTERPARTY") throw new CommandError("WRONG_PHASE", "Rematches are available in the Afterparty.");
+    room.secret = null; room.investigation = null; room.lobbyChat = [];
+    room.phase = "LOBBY"; room.phaseVersion += 1; room.locked = false;
+    room.botPolicy = command.allowBots ? "allow_bots" : "none";
+    for (const p of room.participants.values()) { p.ready = false; p.acceptBotFill = false; p.acceptedIdentityHiddenDisclosure = false; p.personaId = null; p.roleAcknowledged = false; }
+    this.touch(room);
+    return { room, data: { phase: "LOBBY" as const, version: room.version } };
+  }
+
+  leave(session: GuestSession, socketId: string, command: ResumeCommand) {
+    const { room, participant } = this.member(session, command.roomId);
+    if (!participant.socketIds.has(socketId)) throw new CommandError("FORBIDDEN", "Reconnect to your seat first.");
+    if (room.phase !== "LOBBY" && room.phase !== "AFTERPARTY" && room.phase !== "ABANDONED") throw new CommandError("WRONG_PHASE", "You can leave from the lobby or Afterparty.");
+    room.participants.delete(session.userId); session.roomId = null;
+    if (room.hostUserId === session.userId) room.hostUserId = [...room.participants.values()].find(p => p.socketIds.size)?.userId ?? room.participants.keys().next().value ?? "";
+    this.touch(room); return { room, data: { left: true as const } };
+  }
+
+  chat(session: GuestSession, socketId: string, command: Parameters<ClientToServerEvents["chat:send"]>[0]) {
+    const { room, participant } = this.member(session, command.roomId);
+    if (!participant.socketIds.has(socketId)) throw new CommandError("FORBIDDEN", "Reconnect to your seat first.");
+    if (command.channel !== "LOBBY" || room.phase !== "LOBBY") return this.gameCommand(session, socketId, "chat:send", command);
+    const message: ChatMessage = { id: randomUUID(), roomId: room.roomId, channel: "LOBBY", fromParticipantId: participant.participantId, text: command.text, createdAt: new Date(this.now()).toISOString() };
+    room.lobbyChat.push(message); if (room.lobbyChat.length > 100) room.lobbyChat.shift(); this.touch(room);
+    return { room, data: { messageId: message.id }, message };
+  }
+
   role(session: GuestSession, roomId: string): RoleAssignment | null {
     const { room, participant } = this.member(session, roomId);
     return room.secret ? projectRole(room.secret, roomId, participant.participantId) : null;
@@ -175,9 +206,9 @@ export class Lobby {
     return {
       roomId: room.roomId, caseId: room.caseId, publicIntro: room.secret.variant.publicIntro,
       commitment: room.secret.commitment,
-      cast: [...room.participants.values()].map((p) => {
-        const persona = casePack.personas.find((persona) => persona.id === p.personaId)!;
-        return { participantId: p.participantId, personaId: persona.id,
+      cast: Object.entries(room.secret.canonical.personaToParticipant).map(([personaId, participantId]) => {
+        const persona = casePack.personas.find((persona) => persona.id === personaId)!;
+        return { participantId, personaId: persona.id,
           displayName: persona.displayName, publicBio: persona.publicBio };
       }),
     };
