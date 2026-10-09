@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #11151B;
+  --color-surface: #1A202A;
+  --color-raised: #252D39;
+  --color-divider: #39414E;
+  --color-gold: #F3C261;
+  --color-coral: #E36B66;
+  --color-mint: #72B6A0;
+  --color-muted: #C6CCD6;
+}
+
+:root { color-scheme: dark; }
+
+body {
+  margin: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  background: #11151B;
+  color: #F7F7F7;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: 0.5; }
+:focus-visible { outline: 2px solid #F3C261; outline-offset: 4px; }
+label:has(input:focus-visible) { outline: 2px solid #F3C261; outline-offset: 4px; }
+
+@layer components {
+  .eyebrow { @apply text-xs font-semibold uppercase tracking-[0.12em] text-gold; }
+  .primary-button { @apply min-h-12 rounded-xl bg-gold px-5 py-3 text-sm font-bold text-background; }
+  .secondary-button { @apply min-h-11 rounded-xl border border-divider bg-raised px-4 py-3 text-sm font-semibold; }
+  .tab-button { @apply min-h-11 rounded-lg px-3 py-3 text-sm font-semibold; }
+  .text-input { @apply block min-h-12 w-full rounded-xl border border-divider bg-surface px-4 py-3 text-base text-white; }
+}
