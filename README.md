@@ -1,12 +1,12 @@
-# Wahala — private lobby, secret roles and investigation
+# Wahala — private case, sealed ballots and the Big Reveal
 
 Next.js, TypeScript, Tailwind CSS, and a long-running Express/Socket.IO backend.
 This slice implements room creation, joining, ready/unready, seat recovery, and
 secure story initialization / role assignment. The host starts the case when all
 five owners are connected and ready. The room enters `ROLES`; each owner receives
 only their authored opening card. The server then runs three timed investigation
-rounds with settlement, evidence, abilities and private memory. Voting and bot fill
-are deferred.
+rounds with settlement, evidence, abilities and private memory, followed by sealed
+voting and the staged Big Reveal. Afterparty, Gist Lounge and bot fill are deferred.
 
 ## Run locally
 
@@ -24,6 +24,8 @@ Create a room, copy its invite, and let other players join and mark themselves r
 The host can then select **Start case**. Each player reveals their private dossier
 and selects **Proceed to Investigation** to acknowledge it. Investigation begins
 when everyone acknowledges or the 45-second server role deadline expires.
+After the final settlement, each player seals a three-part ballot. Results appear
+when all five ballots are sealed or the 45-second voting deadline expires.
 
 ```sh
 npm run build       # shared contracts, server JS output, Next.js production build
@@ -36,7 +38,10 @@ npm test            # domain and real Socket.IO integration tests
 npm run test:e2e    # browser lobby tests; build first
 ```
 
-The browser tests start/stop both built services themselves. Install a Playwright
+The browser tests start/stop both built services themselves. A worker starts the
+built backend with an injected test clock controlled only through process IPC,
+so full matches run quickly without adding clock controls to production sockets
+or HTTP routes. The frontend remains the production Next.js build. Install a Playwright
 Chromium browser (`npx playwright install chromium`), or point to an existing one:
 
 ```sh
@@ -45,8 +50,8 @@ PLAYWRIGHT_CHROMIUM_EXECUTABLE=/usr/bin/chromium npm run test:e2e
 
 ## Workspace
 
-- `client/`: mobile Welcome, five-slot Private Lobby, and confidential Secret Dossier and Investigation UI.
-- `server/src/`: guest sessions, authoritative lobby domain, investigation processor, socket gateway.
+- `client/`: mobile Welcome, five-slot Private Lobby, and confidential Secret Dossier, Investigation, Voting and Reveal UI.
+- `server/src/`: guest sessions, authoritative lobby domain, investigation/voting processor, pure scoring and socket gateway.
 - `packages/shared/`: normative wire types, strict Zod command schemas, and exact case schema.
 - `packages/content/`: the exact server-only screenshot case extracted from the spec.
 - `server/src/case.ts`: AJV 2020 and reference validation, seeded allocation, immutable truth, and owner-safe card projection.
@@ -79,6 +84,14 @@ Every command uses a UUIDv4 `requestId` and the spec's success/error ACK envelop
 - `action:submit`: room ID, round, exact `ActionSelection`; ACK `{ accepted: true, selectedAction }`.
 - `action:respond`: addressed challenge ID, ANSWER/REFUSE and optional text; ACK `{ recorded: true }`.
 - `deal:respond`: addressed offer ID and accept flag; ACK `{ recorded: true }`.
+- `vote:cast`: room/request IDs plus `causeId`, `principalActorParticipantId`,
+  `resolutionId`; ACK `{ sealed: true }`. One immutable ballot per owner.
+- `vote:receipt`: owner-only `{ roomId, sealed: true }`.
+- `game:reveal`: public `{ roomId, reveal: RevealView }`, emitted once after voting
+  closes. Exact spec fields: correct ballot, three tally maps, group success, actor
+  identification, canonical chronological chain, mission outcomes, CASUAL mode,
+  authored summary and case content hash. No raw ballots, seed, hidden identities
+  or role-card array. Reveal is restored through owner snapshots after reconnect.
 - Investigation events use the exact spec names: `role:memory`, `game:twist`,
   `game:event`, `evidence:private`, `evidence:public`, `action:respond_requested`,
   `deal:offered`, `action:resolved`, and `chat:message`. Private evidence, memories,
@@ -127,7 +140,7 @@ return their original ACK; reuse with different validated data/event is rejected
 - Exact flow: `INVESTIGATION_1 -> SETTLING_1 -> TWIST -> INVESTIGATION_2 ->
   SETTLING_2 -> INVESTIGATION_3 -> SETTLING_3`. Rounds last 120 seconds, twist 30
   seconds, and settlement up to 20 seconds; settlement finishes early when no
-  responses remain. The server pauses at completed SETTLING_3 (`deadlineAt: null`).
+  responses remain. Final settlement advances into a 45-second VOTING window.
 - Choices can be revised until cutoff; the last legal selection wins. Absent seats
   default to PASS. Freeze round-start inventories; resolve discovery, abilities,
   exposure, challenges/defense, then deals. Newly acquired receipts become eligible
@@ -147,6 +160,24 @@ return their original ACK; reuse with different validated data/event is rejected
 - The synchronous per-room processor maintains a private ordered hash-chain ledger
   and round-settlement inventory records. These are in-memory development records,
   not durable database snapshots or kill/restart recovery.
+- Each owner seals exactly one validated cause/actor/resolution ballot. Other
+  owners cannot inspect it. Ordinary votes do not change public versions, events
+  or counts. The owner's `SelfView.myBallot` restores their selections on resume;
+  identical request retries return the original ACK without casting again.
+- VOTING ends on all five ballots or the exact 45-second server deadline. Missing
+  ballots abstain; the electorate remains five and every category needs at least
+  three votes. Ties and fewer than three votes are unresolved; there is no host
+  tie-breaker. Group success requires the correct cause AND resolution majorities;
+  actor identification is independent. Missions use the authored predicates,
+  including the participant's own vote, public evidence and executed trace actions.
+- REVEAL shows accusations/tallies, the canonical cause/actor/resolution, then the
+  chronological chain, important public actions, memory gaps and mission outcomes.
+  Chapters are skippable, keyboard accessible and support reduced motion. Claims
+  remain distinct from verified facts; no automatic lie detection is invented.
+- The reveal presentation has the spec's 60-second server deadline. On expiry the
+  server stays in REVEAL with `deadlineAt: null`; results remain readable. There is
+  no Afterparty, Gist Lounge, rematch or identity epilogue in this slice. Once a
+  canonical reveal exists, subsequent disconnects cannot cancel or rescore it.
 - The exemplar has one authored variant (`wrong_attachment_v1`). No new variants or
   character cards are invented; content publication/solvability review remains future work.
 - Leave, kick, lock controls, changing bot policy, lobby/afterparty chat, and fill are deferred.

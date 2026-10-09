@@ -10,7 +10,7 @@ function fixture() {
   const ids = Array.from({ length: 5 }, () => randomUUID());
   const match = initializeCase(pack, ids, Buffer.alloc(32, 11));
   const seats = ids.map(participantId => ({ participantId, personaId: Object.entries(match.canonical.personaToParticipant).find(([, id]) => id === participantId)![0], roleAcknowledged: false, socketIds: new Set([participantId]) }));
-  const game = new Investigation(randomUUID(), match, seats, pack.settings.seconds, () => clock, () => 1);
+  const game = new Investigation(randomUUID(), match, seats, pack.settings.seconds, () => clock, () => 1, pack);
   const id = (persona: string) => seats.find(s => s.personaId === persona)!.participantId;
   const advance = (ms: number) => { clock += ms; game.tick(); };
   const begin = () => { for (const s of seats) s.roleAcknowledged = true; game.acknowledge(); game.drain(); };
@@ -28,8 +28,8 @@ describe("server-owned investigation", () => {
     const deliveries = f.game.drain().filter(d => d.event === "role:memory");
     expect(deliveries).toHaveLength(5); expect(new Set(deliveries.map(d => d.owner)).size).toBe(5);
     f.advance(120_000); expect(f.game.phase).toBe("INVESTIGATION_3");
-    f.advance(120_000); expect(f.game.phase).toBe("SETTLING_3"); expect(f.game.deadline).toBeNull();
-    f.advance(999_999); expect(f.game.phase).toBe("SETTLING_3");
+    f.advance(120_000); expect(f.game.phase).toBe("VOTING"); expect(f.game.deadline).toBe(f.now() + 45_000);
+    f.advance(999_999); expect(f.game.phase).toBe("REVEAL");
     expect(f.game.ledger.filter(e => e.kind === "ROUND_SETTLED")).toHaveLength(3);
   });
   it("advances early only when every role is acknowledged", () => {

@@ -150,7 +150,7 @@ export class Lobby {
     room.phase = "ROLES";
     room.investigation = new Investigation(room.roomId, secret, players, casePack.settings.seconds, this.now, (phase, phaseChanged) => {
       room.phase = phase; if (phaseChanged) room.phaseVersion += 1; this.touch(room); return room.version;
-    });
+    }, casePack);
     room.phaseVersion += 1;
     this.touch(room);
     return { room, data: { phase: "ROLES" as const, version: room.version } };
@@ -234,7 +234,7 @@ export class Lobby {
     return changed;
   }
 
-  gameCommand<E extends "action:submit" | "action:respond" | "deal:respond" | "chat:send">(session: GuestSession, socketId: string, event: E, command: Parameters<ClientToServerEvents[E]>[0]) {
+  gameCommand<E extends "action:submit" | "action:respond" | "deal:respond" | "chat:send" | "vote:cast">(session: GuestSession, socketId: string, event: E, command: Parameters<ClientToServerEvents[E]>[0]) {
     const { room, participant } = this.member(session, command.roomId);
     if (!participant.socketIds.has(socketId)) throw new CommandError("FORBIDDEN", "Reconnect to your seat first.");
     const game = room.investigation;
@@ -246,6 +246,7 @@ export class Lobby {
     if (event === "action:respond") { const c = command as Parameters<ClientToServerEvents["action:respond"]>[0]; data = game.respond(actor, c.challengeId, c.response, c.text); }
     if (event === "deal:respond") { const c = command as Parameters<ClientToServerEvents["deal:respond"]>[0]; data = game.deal(actor, c.offerId, c.accept); }
     if (event === "chat:send") { const c = command as Parameters<ClientToServerEvents["chat:send"]>[0]; data = game.sendChat(actor, c.channel, c.text); }
+    if (event === "vote:cast") { const c = command as Parameters<ClientToServerEvents["vote:cast"]>[0]; data = game.vote(actor, { causeId: c.causeId, principalActorParticipantId: c.principalActorParticipantId, resolutionId: c.resolutionId }); }
     return { room, data: data as Extract<Parameters<Parameters<ClientToServerEvents[E]>[1]>[0], { ok: true }>["data"] };
   }
 

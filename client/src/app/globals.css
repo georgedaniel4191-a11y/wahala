@@ -35,3 +35,12 @@ label:has(input:focus-visible) { outline: 2px solid #F3C261; outline-offset: 4px
   .tab-button { @apply min-h-11 rounded-lg px-3 py-3 text-sm font-semibold; }
   .text-input { @apply block min-h-12 w-full rounded-xl border border-divider bg-surface px-4 py-3 text-base text-white; }
 }
+
+@keyframes reveal-enter {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.reveal-beat { animation: reveal-enter 350ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .reveal-beat { animation: none; }
+}

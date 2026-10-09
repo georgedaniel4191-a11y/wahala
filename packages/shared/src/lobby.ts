@@ -39,6 +39,7 @@ export const actionSubmitSchema = roomCommandSchema.extend({ round: z.union([z.l
 export const actionRespondSchema = roomCommandSchema.extend({ challengeId: uuid, response: z.enum(["ANSWER", "REFUSE"]), text: statement.optional() });
 export const dealRespondSchema = roomCommandSchema.extend({ offerId: uuid, accept: z.boolean() });
 export const chatSendSchema = roomCommandSchema.extend({ channel: z.enum(["LOBBY", "GAME", "AFTERPARTY"]), text: statement });
+export const voteCastSchema = roomCommandSchema.extend({ causeId: id, principalActorParticipantId: uuid, resolutionId: id });
 
 export type CreateRoomCommand = z.infer<typeof createRoomSchema>;
 export type JoinRoomCommand = z.infer<typeof joinRoomSchema>;
@@ -66,8 +67,9 @@ export type GamePhase = {
   version: number; deadlineAt: string | null; serverNow: string;
 };
 
-// Approved lobby, roles and investigation subset of the normative wire contract.
+// Approved private-game subset of the normative wire contract.
 export interface ClientToServerEvents {
+  "vote:cast": (p: z.infer<typeof voteCastSchema>, ack: (a: Ack<{ sealed: true }>) => void) => void;
   "action:submit": (p: z.infer<typeof actionSubmitSchema>, ack: (a: Ack<{ accepted: true; selectedAction: ActionSelection }>) => void) => void;
   "action:respond": (p: z.infer<typeof actionRespondSchema>, ack: (a: Ack<{ recorded: true }>) => void) => void;
   "deal:respond": (p: z.infer<typeof dealRespondSchema>, ack: (a: Ack<{ recorded: true }>) => void) => void;
@@ -80,6 +82,8 @@ export interface ClientToServerEvents {
   "role:acknowledge": (p: ResumeCommand, ack: (a: Ack<{ acknowledged: true }>) => void) => void;
 }
 export interface ServerToClientEvents {
+  "vote:receipt": (p: { roomId: string; sealed: true }) => void;
+  "game:reveal": (p: { roomId: string; reveal: RevealView }) => void;
   "role:memory": (p: { roomId: string; midgameMemory: string }) => void;
   "game:twist": (p: { roomId: string; headline: string; publicClues: VerifiedClue[] }) => void;
   "game:event": (p: { roomId: string; event: PublicGameEvent }) => void;

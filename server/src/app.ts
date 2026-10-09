@@ -5,7 +5,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { Server, type Socket } from "socket.io";
 import { z } from "zod";
 import {
-  actionSubmitSchema, actionRespondSchema, dealRespondSchema, chatSendSchema, CASE_ID, CASE_TITLE, createRoomSchema, joinRoomSchema, readyRoomSchema, roomCommandSchema,
+  voteCastSchema, actionSubmitSchema, actionRespondSchema, dealRespondSchema, chatSendSchema, CASE_ID, CASE_TITLE, createRoomSchema, joinRoomSchema, readyRoomSchema, roomCommandSchema,
 } from "@wahala/shared";
 import type { Ack, ClientToServerEvents, ServerToClientEvents } from "@wahala/shared";
 import { CommandError, Lobby, type LobbyRoom } from "./lobby";
@@ -97,7 +97,7 @@ export function createApplication(options: Options = {}) {
   function snapshot(socket: LobbySocket, room: LobbyRoom, announceStarted = true) {
     socket.emit("state:snapshot", {
       roomId: room.roomId, public: lobby.view(room),
-      self: lobby.self(socket.data.session, room.roomId), recentChat: room.investigation?.chat ?? [], reveal: null,
+      self: lobby.self(socket.data.session, room.roomId), recentChat: room.investigation?.chat ?? [], reveal: room.investigation?.revealView() ?? null,
     });
     const started = lobby.started(room);
     if (started && announceStarted) socket.emit("game:started", started);
@@ -110,7 +110,7 @@ export function createApplication(options: Options = {}) {
     // Socket.IO's overloaded emitter. Owner routing is enforced below.
     (target.emit as (event: string, payload: unknown) => void).call(target, delivery.event, delivery.payload);
   }
-  function synchronize(room: LobbyRoom) {
+  function flush(room: LobbyRoom) {
     const deliveries = room.investigation?.drain() ?? [];
     for (const delivery of deliveries) {
       if (!delivery.owner) emitDelivery(io.to(room.roomId), delivery);
@@ -119,6 +119,9 @@ export function createApplication(options: Options = {}) {
         if (member?.participantId === delivery.owner && socket.data.session.roomId === room.roomId) emitDelivery(socket, delivery);
       }
     }
+  }
+  function synchronize(room: LobbyRoom) {
+    flush(room);
     const view = lobby.view(room);
     io.to(room.roomId).emit("game:phase", { roomId: room.roomId, phase: view.phase, round: view.round, version: view.version, deadlineAt: view.deadlineAt, serverNow: view.serverNow });
     for (const socket of io.sockets.sockets.values()) {
@@ -164,7 +167,7 @@ export function createApplication(options: Options = {}) {
         const room = lobby.rooms.get(session.roomId);
         if (room?.participants.has(session.userId)) {
           attachAll(session, room);
-          publish(room);
+          if (event !== "vote:cast") publish(room);
         }
       }
       return;
@@ -191,11 +194,13 @@ export function createApplication(options: Options = {}) {
         io.to(room.roomId).emit("game:phase", { roomId: room.roomId, phase: room.phase,
           round: 0, version: room.version, deadlineAt: lobby.view(room).deadlineAt, serverNow: new Date(now()).toISOString() });
       } else attachAll(session, room);
-      if (room.investigation && event !== "room:start") synchronize(room);
+      const sealedOnly = event === "vote:cast" && room.phase === "VOTING";
+      if (sealedOnly) flush(room);
+      else if (room.investigation && event !== "room:start") synchronize(room);
       response = { ok: true, requestId, data, serverNow: new Date(now()).toISOString() };
       requests.set(key, { fingerprint, ack: response, expiresAtMs: session.expiresAtMs });
       ack(response);
-      publish(room);
+      if (!sealedOnly) publish(room);
       return;
     } catch (error) {
       if (error instanceof CommandError) response = fail(error.code, error.message);
@@ -227,6 +232,8 @@ export function createApplication(options: Options = {}) {
       (value) => lobby.start(session, socket.id, value)));
     socket.on("role:acknowledge", (payload, ack) => command(socket, "role:acknowledge", roomCommandSchema, payload, ack,
       (value) => lobby.acknowledge(session, socket.id, value)));
+    socket.on("vote:cast", (payload, ack) => command(socket, "vote:cast", voteCastSchema, payload, ack,
+      value => lobby.gameCommand(session, socket.id, "vote:cast", value)));
     socket.on("action:submit", (payload, ack) => command(socket, "action:submit", actionSubmitSchema, payload, ack,
       value => lobby.gameCommand(session, socket.id, "action:submit", value)));
     socket.on("action:respond", (payload, ack) => command(socket, "action:respond", actionRespondSchema, payload, ack,

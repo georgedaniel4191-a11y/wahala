@@ -10,7 +10,7 @@ export default defineConfig({
       : {},
   },
   webServer: {
-    command: "npm start", url: "http://localhost:3000", timeout: 30_000,
+    command: "npm run start:client", url: "http://localhost:3000", timeout: 30_000,
     reuseExistingServer: false,
   },
 });

@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { ActionSelection, ChatMessage, Phase, PublicGameEvent, RoomView, SelfView, ServerToClientEvents } from "@wahala/shared";
+import type { ActionSelection, Ballot, RevealView, ChatMessage, Phase, PublicGameEvent, RoomView, SelfView, ServerToClientEvents } from "@wahala/shared";
 import { clueView, type CaseInitialization } from "./case";
+import { scoreCase, type BallotOptions } from "./scoring";
 import { CommandError } from "./errors";
 
 type Payload<E extends keyof ServerToClientEvents> = Parameters<ServerToClientEvents[E]>[0];
-type PrivateEvent = "state:snapshot" | "role:assign" | "role:memory" | "evidence:private" | "action:respond_requested" | "deal:offered" | "action:resolved";
+type PrivateEvent = "state:snapshot" | "role:assign" | "role:memory" | "evidence:private" | "action:respond_requested" | "deal:offered" | "action:resolved" | "vote:receipt";
 export type Delivery = { [E in keyof ServerToClientEvents]: { event: E; payload: Payload<E> } & (E extends PrivateEvent ? { owner: string } : { owner?: never }) }[keyof ServerToClientEvents];
 type Seat = { participantId: string; personaId: string | null; roleAcknowledged: boolean; socketIds: Set<string> };
 type Player = { evidence: Set<string>; memory: Set<string>; start: Set<string>; selected: ActionSelection | null; used: boolean; midgame: boolean };
@@ -23,6 +24,9 @@ export class Investigation {
   readonly accusations: RoomView["accusationMarkers"] = [];
   readonly challenges = new Map<string, Challenge>();
   readonly deals = new Map<string, Deal>();
+  private readonly ballots = new Map<string, Ballot>();
+  private readonly traceSelfUsed = new Set<string>();
+  private outcome: RevealView | null = null;
   private delayed = new Set<string>();
   private deliveries: Delivery[] = [];
   private receipts: Delivery[] = [];
@@ -32,8 +36,9 @@ export class Investigation {
   readonly ledger: { sequence: number; at: number; kind: string; actor?: string; data: unknown; hash: string }[] = [];
 
   constructor(readonly roomId: string, readonly match: CaseInitialization, readonly seats: Seat[],
-    private readonly seconds: { roles: number; round: number; response: number; twist: number },
-    private readonly now: () => number, private readonly changed: (phase: Phase, phaseChanged: boolean) => number) {
+    private readonly seconds: { roles: number; round: number; response: number; twist: number; vote: number; reveal: number },
+    private readonly now: () => number, private readonly changed: (phase: Phase, phaseChanged: boolean) => number,
+    private readonly ballotOptions: BallotOptions) {
     this.deadline = now() + seconds.roles * 1000;
     for (const seat of seats) {
       const card = this.card(seat.participantId);
@@ -82,6 +87,7 @@ export class Investigation {
   acknowledge() { if (this.phase === "ROLES" && this.seats.every(s => s.roleAcknowledged)) this.beginRound(1, this.now()); }
   tick() {
     if (this.phase === "ABANDONED") return;
+    if (this.phase === "REVEAL") { this.pauseReveal(); return; }
     if (this.seats.filter(s => s.socketIds.size > 0).length < 2) {
       this.belowMinimumSince ??= this.now();
       if (this.now() - this.belowMinimumSince > 120_000) {
@@ -91,10 +97,13 @@ export class Investigation {
     // Catch up deterministically against recorded deadlines, not timer callback drift.
     while (this.deadline !== null && this.now() >= this.deadline) {
       const at = this.deadline;
-      if (this.phase === "ROLES") this.beginRound(1, at);
-      else if (this.phase.startsWith("INVESTIGATION_")) this.settle(at);
-      else if (this.phase.startsWith("SETTLING_")) this.finishSettlement(at);
-      else if (this.phase === "TWIST") this.beginRound(2, at);
+      const phase = this.phase as Phase;
+      if (phase === "ROLES") this.beginRound(1, at);
+      else if (phase.startsWith("INVESTIGATION_")) this.settle(at);
+      else if (phase.startsWith("SETTLING_")) this.finishSettlement(at);
+      else if (phase === "TWIST") this.beginRound(2, at);
+      else if (phase === "VOTING") this.finishVoting(at);
+      else if (phase === "REVEAL") this.pauseReveal();
       else break;
     }
   }
@@ -155,6 +164,7 @@ export class Investigation {
     for (const { actor, action } of ordered) {
       const player = this.players.get(actor)!;
       const ids = action.kind === "TRACE_SELF" ? this.card(actor).traceEvidenceIds : action.kind === "INVESTIGATE" ? this.match.variant.investigationLeads.find(l => l.id === action.leadId)!.evidenceIds : null;
+      if (action.kind === "TRACE_SELF") this.traceSelfUsed.add(actor);
       if (ids) {
         const next = ids.find(id => !player.evidence.has(id) && !player.memory.has(id));
         if (next) { this.grant(actor, next, action.kind as "TRACE_SELF" | "INVESTIGATE"); this.resolved(actor, "A verified receipt was added to your private dossier.", [next]); }
@@ -247,12 +257,41 @@ export class Investigation {
       if (this.delayed.size) this.event("TWIST", this.match.variant.twist.headline);
       this.delayed.clear(); this.beginRound(3, at);
     } else {
-      // Voting belongs to the next sprint. This is a deliberate server-side pause.
-      this.transition("SETTLING_3", at, null); this.event("INVESTIGATION_COMPLETE", "Investigation complete. Voting will be available in the next build.");
+      this.transition("VOTING", at, this.seconds.vote);
+      this.event("VOTING_OPEN", "Investigation complete. Seal your cause, principal participant and resolution ballot.");
     }
   }
+  vote(actor: string, ballot: Ballot) {
+    if (this.phase !== "VOTING") throw new CommandError("WRONG_PHASE", "Ballots can only be sealed during VOTING.");
+    if (this.deadline === null || this.now() >= this.deadline) throw new CommandError("DEADLINE_PASSED", "The ballot deadline has passed.");
+    if (!this.players.has(actor)) throw new CommandError("FORBIDDEN", "You do not own a seat in this case.");
+    if (this.ballots.has(actor)) throw new CommandError("REQUEST_CONFLICT", "Your ballot is already sealed and cannot be changed.");
+    if (!this.ballotOptions.causeOptions.some(o => o.id === ballot.causeId) || !this.ballotOptions.resolutionOptions.some(o => o.id === ballot.resolutionId)) throw new CommandError("INVALID_ACTION", "Choose a case-listed cause and resolution.");
+    if (!this.players.has(ballot.principalActorParticipantId)) throw new CommandError("INVALID_TARGET", "Choose a participant in this case.");
+    const sealed = Object.freeze({ ...ballot });
+    this.ballots.set(actor, sealed); this.record("BALLOT_SEALED", actor, sealed);
+    this.send("vote:receipt", { roomId: this.roomId, sealed: true }, actor);
+    // Ballot activity does not change public versions, counts or events.
+    if (this.ballots.size === this.seats.length) this.finishVoting(this.now());
+    return { sealed: true as const };
+  }
+  private finishVoting(at: number) {
+    if (this.outcome) return;
+    const reveal = scoreCase(this.match, this.ballotOptions, { ballots: this.ballots, publicEvidence: this.publicEvidence, traceSelfUsed: this.traceSelfUsed });
+    this.outcome = reveal;
+    this.record("VOTING_CLOSED", null, reveal);
+    this.transition("REVEAL", at, this.seconds.reveal);
+    this.send("game:reveal", { roomId: this.roomId, reveal });
+    // Revealed results remain readable; Afterparty is deliberately deferred.
+  }
+  private pauseReveal() {
+    if (this.deadline !== null && this.now() >= this.deadline) {
+      this.deadline = null; this.record("REVEAL_PRESENTATION_COMPLETE", null, {}); this.changed(this.phase, false);
+    }
+  }
+  revealView(): RevealView | null { return this.phase === "REVEAL" ? this.outcome : null; }
   sendChat(actor: string, channel: ChatMessage["channel"], text: string) {
-    if (channel !== "GAME" || this.phase === "ROLES" || this.phase === "ABANDONED") throw new CommandError("WRONG_PHASE", "Game statements are available during investigation.");
+    if (channel !== "GAME" || !(this.phase.startsWith("INVESTIGATION_") || this.phase.startsWith("SETTLING_") || this.phase === "TWIST")) throw new CommandError("WRONG_PHASE", "Game statements are available during investigation.");
     const message: ChatMessage = { id: randomUUID(), roomId: this.roomId, channel, fromParticipantId: actor, text, createdAt: new Date(this.now()).toISOString() };
     this.chat.push(message); if (this.chat.length > 100) this.chat.shift();
     this.record("CHAT", actor, message); this.send("chat:message", { roomId: this.roomId, message }); this.changed(this.phase, false);
@@ -263,6 +302,7 @@ export class Investigation {
     const ability = this.match.variant.abilities.find(a => a.id === card.abilityId)!;
     return { midgameMemory: p.midgame ? card.midgameMemory : null, ability: { id: ability.id, description: ability.description, used: p.used },
       myEvidence: [...p.evidence].map(id => clueView(this.definition(id))), myMemoryFragments: [...p.memory].map(id => clueView(this.definition(id))),
+      myBallot: this.ballots.has(actor) ? { ...this.ballots.get(actor)! } : null,
       selectedAction: p.selected, actionLocked: !this.phase.startsWith("INVESTIGATION_") };
   }
   publicView() {

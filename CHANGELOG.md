@@ -48,3 +48,23 @@ See README.md for assumptions, environment variables, and verification commands.
 - Added timer, authorization, privacy, inventory, ability, expiry, disconnect, abandonment,
   nested-payload deduplication and five-player browser investigation tests.
 - Voting, reveal, bots and durable PostgreSQL recovery remain deferred.
+
+## 2026-10-09 — Sealed voting and the Big Reveal
+
+- Added exact `vote:cast`, owner-only `vote:receipt` and public `game:reveal` contracts
+  with strict schemas, owner authorization, immutable ballots and request deduplication.
+- Final settlement now enters VOTING for the spec's 45-second server deadline;
+  all five sealed ballots end it early, missing ballots abstain, and no ordinary
+  ballot updates public counts, events or versions.
+- Added pure fixed 3-of-5 scoring for cause/actor/resolution, independent group
+  success and actor identification, and all authored mission predicate kinds.
+- Added frozen exact RevealView projection, chronological canonical chain, mission
+  outcomes, one-time reveal emission and reconnect restoration without raw ballots,
+  seed, hidden identities or private role arrays.
+- Added focused three-part Voting screen and accessible staged Accusations / Truth /
+  Receipts reveal, with public action history, mission outcomes, chapter navigation,
+  skip control, keyboard focus and reduced-motion animation.
+- REVEAL retains the 60-second presentation deadline and then pauses with results
+  readable. Afterparty, Gist Lounge, rematch and bot participation remain deferred.
+- Added voting boundary, abstention, scoring, mission, privacy, retry, reconnect and
+  full five-browser match tests; browser clock injection is test-only process IPC.

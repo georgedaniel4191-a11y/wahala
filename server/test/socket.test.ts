@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { io, type Socket } from "socket.io-client";
 import type { AddressInfo } from "node:net";
-import { CASE_ID, type Ack, type RoomView, type Snapshot, type RoleAssignment, type GameStarted } from "@wahala/shared";
+import { CASE_ID, type Ack, type RoomView, type Snapshot, type RoleAssignment, type GameStarted, type RevealView, type Ballot } from "@wahala/shared";
 import { createApplication } from "../src/app";
 import { RECONNECT_GRACE_MS } from "../src/lobby";
 import { loadCasePack } from "../src/case";
@@ -251,6 +251,78 @@ describe("real Socket.IO lobby commands", () => {
     const [answer, replay] = await Promise.all([command(anotherTab.socket, "action:respond", response), command(anotherTab.socket, "action:respond", response)]);
     expect(unwrap(answer)).toEqual({ recorded: true }); expect(replay).toEqual(answer); expect(runtime.phase).toBe("TWIST");
     expect(runtime.investigation!.events.filter(e => e.kind === "ANSWER")).toHaveLength(1);
+  });
+
+  it("keeps ballots sealed across concurrent retries and tabs until all five ballots reveal once", async () => {
+    const players = await fivePlayers(); await readyAll(players);
+    unwrap(await command(players.members[0].socket, "room:start", { roomId: players.room.roomId, requestId: randomUUID() }));
+    const runtime = application.lobby.rooms.get(players.room.roomId)!;
+    const secret = runtime.secret!;
+    const correct: Ballot = { causeId: secret.canonical.truth.causeId, principalActorParticipantId: secret.canonical.personaToParticipant[secret.canonical.truth.principalActorPersonaId], resolutionId: secret.canonical.truth.resolutionId };
+    expect(await command(players.members[0].socket, "vote:cast", { roomId: runtime.roomId, requestId: randomUUID(), ...correct })).toMatchObject({ ok: false, error: { code: "WRONG_PHASE" } });
+    clock += 435_000; application.cleanup();
+    await expect.poll(() => players.members[4].views.at(-1)!.phase).toBe("VOTING");
+    const receipts: unknown[][] = players.members.map(() => []);
+    const reveals: RevealView[][] = players.members.map(() => []);
+    players.members.forEach((m, i) => {
+      m.socket.on("vote:receipt", value => receipts[i].push(value));
+      m.socket.on("game:reveal", value => reveals[i].push(value.reveal));
+    });
+    const version = runtime.version;
+    const publicCounts = players.members.map(m => m.views.length);
+    const snapshotCounts = players.members.map(m => m.snapshots.length);
+    const payload = { roomId: runtime.roomId, requestId: randomUUID(), ...correct };
+    const [first, retry] = await Promise.all([command(players.members[0].socket, "vote:cast", payload), command(players.members[0].socket, "vote:cast", payload)]);
+    expect(unwrap(first)).toEqual({ sealed: true }); expect(retry).toEqual(first);
+    await expect.poll(() => receipts[0].length).toBe(1);
+    expect(runtime.version).toBe(version); expect(players.members.map(m => m.views.length)).toEqual(publicCounts);
+    for (let i = 1; i < 5; i += 1) { expect(receipts[i]).toEqual([]); expect(players.members[i].snapshots.length).toBe(snapshotCounts[i]); }
+    expect(reveals.flat()).toHaveLength(0);
+    expect(runtime.investigation!.revealView()).toBeNull();
+    expect(await command(players.members[0].socket, "vote:cast", { ...payload, resolutionId: "forged" })).toMatchObject({ ok: false, error: { code: "REQUEST_CONFLICT" } });
+    expect(await command(players.members[0].socket, "vote:cast", { ...payload, requestId: randomUUID() })).toMatchObject({ ok: false, error: { code: "REQUEST_CONFLICT" } });
+    const ownTab = await connect(players.members[0].cookie);
+    await expect.poll(() => ownTab.snapshots.length).toBeGreaterThan(0);
+    expect(ownTab.snapshots.at(-1)!.self.myBallot).toEqual(correct); expect(ownTab.snapshots.at(-1)!.reveal).toBeNull();
+    unwrap(await command(players.members[1].socket, "state:resume", { roomId: runtime.roomId, requestId: randomUUID() }));
+    expect(players.members[1].snapshots.at(-1)!.self.myBallot).toBeNull();
+    expect(players.members[1].snapshots.at(-1)!.reveal).toBeNull();
+    const outsider = await connect(); const outsideReveals: unknown[] = []; outsider.socket.on("game:reveal", value => outsideReveals.push(value));
+    expect(await command(outsider.socket, "vote:cast", { ...payload, requestId: randomUUID() })).toMatchObject({ ok: false, error: { code: "FORBIDDEN" } });
+    expect(await command(players.members[1].socket, "vote:cast", { ...payload, requestId: randomUUID(), participantId: players.room.participantId })).toMatchObject({ ok: false, error: { code: "BAD_PAYLOAD" } });
+    expect(await command(players.members[1].socket, "vote:cast", { ...payload, requestId: randomUUID(), causeId: "forged" })).toMatchObject({ ok: false, error: { code: "INVALID_ACTION" } });
+    expect(await command(players.members[1].socket, "vote:cast", { ...payload, requestId: randomUUID(), principalActorParticipantId: randomUUID() })).toMatchObject({ ok: false, error: { code: "INVALID_TARGET" } });
+    for (const member of players.members.slice(1, 4)) unwrap(await command(member.socket, "vote:cast", { ...payload, requestId: randomUUID() }));
+    expect(runtime.phase).toBe("VOTING"); expect(reveals.flat()).toHaveLength(0);
+    unwrap(await command(players.members[4].socket, "vote:cast", { ...payload, requestId: randomUUID() }));
+    await expect.poll(() => reveals.map(r => r.length)).toEqual([1, 1, 1, 1, 1]);
+    const reveal = reveals[0][0]; expect(reveal).toMatchObject({ correct, groupSuccess: true, actorIdentified: true, caseContentHash: secret.caseContentHash });
+    expect(outsideReveals).toEqual([]);
+    const back = await connect(players.members[3].cookie);
+    await expect.poll(() => back.snapshots.length).toBeGreaterThan(0);
+    expect(back.snapshots.at(-1)!.reveal).toEqual(reveal); expect(back.snapshots.at(-1)!.self.myBallot).toEqual(correct);
+    clock += 60_000; application.cleanup(); expect(runtime.phase).toBe("REVEAL");
+    expect(runtime.investigation!.deadline).toBeNull();
+    expect(reveals.map(r => r.length)).toEqual([1, 1, 1, 1, 1]);
+    expect(runtime.investigation!.ledger.filter(e => e.kind === "BALLOT_SEALED")).toHaveLength(5);
+  });
+
+  it("reveals on the 45-second deadline with abstentions and rejects late ballot commands", async () => {
+    const players = await fivePlayers(); await readyAll(players);
+    unwrap(await command(players.members[0].socket, "room:start", { roomId: players.room.roomId, requestId: randomUUID() }));
+    clock += 435_000; application.cleanup();
+    const runtime = application.lobby.rooms.get(players.room.roomId)!;
+    const received: RevealView[] = []; players.members[0].socket.on("game:reveal", value => received.push(value.reveal));
+    const payload = { roomId: runtime.roomId, requestId: randomUUID(), causeId: "wrong_file_forward", principalActorParticipantId: [...runtime.participants.values()][0].participantId, resolutionId: "secure_and_correct" };
+    unwrap(await command(players.members[0].socket, "vote:cast", payload));
+    clock += 44_999; application.cleanup(); expect(runtime.phase).toBe("VOTING"); expect(received).toHaveLength(0);
+    clock += 1;
+    expect(await command(players.members[1].socket, "vote:cast", { ...payload, requestId: randomUUID() })).toMatchObject({ ok: false, error: { code: "WRONG_PHASE" } });
+    await expect.poll(() => received.length).toBe(1);
+    expect(received[0].groupSuccess).toBe(false); expect(received[0].actorIdentified).toBe(false);
+    expect(Object.values(received[0].tallies.actors).reduce((sum, n) => sum + n, 0)).toBe(1);
+    await expect.poll(() => players.members[1].snapshots.at(-1)!.public.phase).toBe("REVEAL");
+    expect(players.members[1].snapshots.at(-1)!.self.myBallot).toBeNull();
   });
 
   it("authenticates via signed HttpOnly cookies and rejects missing, forged or wrong-origin sessions", async () => {
