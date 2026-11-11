@@ -17,6 +17,7 @@ const escaped=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>
 const app=document.getElementById('app');
 if(!app)return;
 let decorateQueued=false,stagePeek=0,opening=null,openingStep=0,bypassBegin=false;
+let lastManualPeek=Date.now();
 function episodeIndex(){
  const selected=app.querySelector('.episode.selected');
  if(selected){const all=[...app.querySelectorAll('.episode')],i=all.indexOf(selected);if(i>=0)return i;}
@@ -120,7 +121,7 @@ function leaveIntroduction(startGame){
 document.addEventListener('click',function(event){
  const target=event.target.closest('[data-arcade]');if(target){
   const action=target.dataset.arcade;
-  if(action==='peek'){stagePeek=Number(target.dataset.index)||0;const ep=episodeIndex(),root=target.closest('.arc-stage');if(root){root.querySelectorAll('.arc-character').forEach(b=>{const active=b===target;b.classList.toggle('arc-active',active);b.setAttribute('aria-pressed',String(active))});const d=root.querySelector('.arc-dialogue');if(d)d.innerHTML='<span class="arc-reaction">👀</span><div><small>MEET '+escaped(cast[ep][stagePeek].name.toUpperCase())+' · '+escaped(cast[ep][stagePeek].title)+'</small><strong>'+escaped(cast[ep][stagePeek].quote)+'</strong></div><em>TAP THE CAST TO<br>HEAR THE GIST ↗</em>'}}
+  if(action==='peek'){if(event.isTrusted)lastManualPeek=Date.now();stagePeek=Number(target.dataset.index)||0;const ep=episodeIndex(),root=target.closest('.arc-stage');if(root){root.querySelectorAll('.arc-character').forEach(b=>{const active=b===target;b.classList.toggle('arc-active',active);b.setAttribute('aria-pressed',String(active))});const d=root.querySelector('.arc-dialogue');if(d)d.innerHTML='<span class="arc-reaction">👀</span><div><small>MEET '+escaped(cast[ep][stagePeek].name.toUpperCase())+' · '+escaped(cast[ep][stagePeek].title)+'</small><strong>'+escaped(cast[ep][stagePeek].quote)+'</strong></div><em>TAP THE CAST TO<br>HEAR THE GIST ↗</em>'}}
   if(action==='intro-next'){openingStep++;if(openingStep>2)leaveIntroduction(true);else updateIntroduction()}
   if(action==='intro-skip')leaveIntroduction(true);
   if(action==='intro-cancel')leaveIntroduction(false);
@@ -132,4 +133,13 @@ document.addEventListener('click',function(event){
  if(gameButton&&!bypassBegin){event.preventDefault();event.stopImmediatePropagation();introduction()}
 },true);
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&opening){e.preventDefault();leaveIntroduction(false)}});
+/* A gentle, automatically changing cast spotlight catches attention without sound. */
+setInterval(()=>{
+ if(opening||document.hidden||Date.now()-lastManualPeek<9000)return;
+ if(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)return;
+ const home=app.querySelector('.arc-stage.home');
+ if(!home)return;
+ const choices=[...home.querySelectorAll('[data-arcade="peek"]')];
+ if(choices.length){const next=(stagePeek+1)%choices.length;choices[next].click()}
+},4400);
 })();
