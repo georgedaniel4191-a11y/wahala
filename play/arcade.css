@@ -122,3 +122,22 @@ body{background:radial-gradient(circle at 70% -15%,#66304f55,transparent 55%),ra
 @media(max-width:800px){.arc-hero{grid-template-columns:1fr;min-height:0;gap:24px}.arc-hero h1{font-size:clamp(51px,10.5vw,88px)}.arc-stage-holder{max-width:620px;margin:auto}.arc-stage{height:390px}.arc-drawing{height:190px}.arc-opening .arc-stage{height:290px}}
 @media(max-width:580px){.arc-ticker{margin:0 -16px 25px;font-size:10px}.arc-hero h1{font-size:clamp(45px,12vw,70px)}.arc-hero .hero-sub{font-size:17px}.arc-hero .button{width:100%}.arc-stage{height:314px;border-radius:21px}.arc-cast{bottom:89px;height:161px;left:-2%;right:-2%}.arc-drawing{height:141px}.arc-name{font-size:9px;padding:4px 7px}.arc-stage-bar{font-size:8px;padding:13px}.arc-stage-place{display:none}.arc-pop{font-size:8px;padding:6px 7px}.arc-pop-one{top:53px}.arc-pop-two{top:82px}.arc-dialogue{min-height:91px;padding:9px;gap:7px}.arc-dialogue em{display:none}.arc-dialogue .arc-reaction{font-size:23px}.arc-dialogue small{font-size:9px}.arc-dialogue strong{font-size:17px}.arc-episode-icon{font-size:36px}.arc-mini-stage{min-height:197px}.arc-mini-cast{height:117px;padding:0 4px}.arc-mini-drawing{height:103px}.arc-mini-seat small{font-size:9px;padding:3px 5px}.arc-mini-header,.arc-mini-footer{font-size:8px;padding:9px 8px}.arc-mini-footer{white-space:nowrap}.arc-mini-footer>span:last-child{display:none}.arc-portrait{height:205px;width:186px}.arc-dossier{min-height:345px}.arc-ballot-cast{gap:3px}.arc-ballot-person .arc-drawing{height:74px}.arc-ballot-person strong{font-size:10px}.arc-envelope{height:220px}.arc-opening{padding:12px 12px 48px}.arc-opening .arc-stage{height:218px}.arc-opening .arc-cast{bottom:10px;height:130px}.arc-opening .arc-drawing{height:120px}.arc-opening .arc-name{font-size:8px}.arc-scene-copy{padding:23px 15px;min-height:159px}.arc-scene-copy p{font-size:13px}.arc-scene-actions{flex-direction:column}.arc-scene-actions .button{width:100%}}
 @media(prefers-reduced-motion:reduce){.arc-ticker div,.arc-lights i,.arc-live-dot,.arc-pop,.arc-drawing,.arc-eyes,.arc-envelope b,.arc-paper,.arc-alert:before,.arc-siren,.arc-victory{animation:none!important}.arc-character,.arc-ballot-person,.arc-envelope{transition:none!important}}
+
+/* The Drama Room full-width game HUD */
+.layout{display:block;max-width:1460px}
+.rail{height:auto;position:relative;display:flex;flex-direction:row;align-items:center;justify-content:space-between;padding:16px clamp(18px,4.6vw,68px);border-right:0;border-bottom:1px solid #f2dcaa30;background:linear-gradient(90deg,#211a29,#16151e)}
+.rail .rail-middle,.rail .rail-bottom,.rail>.small-top{display:none}
+.rail:after{content:"✳ SEASON 01 · THE DRAMA ROOM";color:#ffcf78;border:1px solid #ffcd7850;border-radius:999px;padding:8px 14px;font:900 10px 'Space Grotesk',sans-serif;letter-spacing:.12em}
+.brand{font-size:clamp(28px,3vw,36px)}
+.app-main{padding:24px clamp(18px,4.6vw,68px) 78px}
+.wide{max-width:1300px}
+.topline{margin-bottom:18px}
+.arc-stage-holder{transform:rotate(1deg);transition:transform .3s}
+.arc-stage-holder:hover{transform:rotate(0deg)}
+.arc-stage.home{min-height:410px}
+.action-card .iconbox{box-shadow:0 5px 0 #0006}
+.action-card:hover .iconbox{background:#ffcf78;color:#251822;transform:rotate(-6deg)}
+.secret-line{border-left:3px solid #f1c36e}
+@media(max-width:800px){.rail{padding:14px 17px}.rail:after{content:"● GAME NIGHT";font-size:9px}.app-main{padding:17px 16px 70px}.arc-stage-holder{transform:none}}
+@media(max-width:580px){.arc-stage.home{min-height:314px}.brand{font-size:27px}.rail:after{font-size:8px;padding:6px 9px}}
+@media(prefers-reduced-motion:reduce){.arc-stage-holder{transition:none!important}}
