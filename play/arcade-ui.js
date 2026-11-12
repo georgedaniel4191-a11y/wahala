@@ -50,6 +50,10 @@ function miniStage(ep,roleName){
 }
 function decorate(){
  const wide=app.querySelector('.wide');if(!wide)return;
+ const audioControls=app.querySelector('.topline-actions');
+ if(audioControls&&window.WahalaAudio?.available&&!audioControls.querySelector('.audio-volume')){
+  audioControls.insertAdjacentHTML('beforeend','<label class="audio-volume">VOL <input type="range" min="0" max="100" step="5" value="'+window.WahalaAudio.volumePercent+'" data-wahala-volume aria-label="Soundtrack and sound effects volume"><output>'+window.WahalaAudio.volumePercent+'%</output></label>');
+ }
  const ep=episodeIndex();
  if(app.querySelector('.hero-card')){
   const hero=app.querySelector('.hero');hero.classList.add('arc-hero');
@@ -132,6 +136,11 @@ document.addEventListener('click',function(event){
  const gameButton=event.target.closest('[data-action="begin"]');
  if(gameButton&&!bypassBegin){event.preventDefault();event.stopImmediatePropagation();introduction()}
 },true);
+document.addEventListener('input',e=>{
+ const el=e.target;if(!el||!el.matches?.('[data-wahala-volume]'))return;
+ window.WahalaAudio?.volume?.(el.value);
+ const out=el.parentElement?.querySelector('output');if(out)out.textContent=el.value+'%';
+});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&opening){e.preventDefault();leaveIntroduction(false)}});
 /* A gentle, automatically changing cast spotlight catches attention without sound. */
 setInterval(()=>{
