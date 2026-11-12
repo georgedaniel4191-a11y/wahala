@@ -1,18 +1,18 @@
 /* Wahala — Drama Room enhancement. Progressive UI: original game rules remain authoritative. */
 (function(){
 'use strict';
-const cast=[
+const cast=[...(window.WAHALA_NEW_CASTS||[]), ...[
  [{id:'tobi',name:'Tobi',title:'The file guy',quote:'Omo, no be like that.'},{id:'ada',name:'Ada',title:'The organiser',quote:'Who carried my chat outside?!'},{id:'zainab',name:'Zainab',title:'Receipts keeper',quote:'I have actual timestamps.'},{id:'emeka',name:'Emeka',title:'The peacemaker',quote:'Can everybody calm down?'},{id:'feyi',name:'Feyi',title:'The comedian',quote:'I WAS JOKING! 😭'}],
  [{id:'bisi',name:'Bisi',title:'The treasurer',quote:'I paid the invoice they sent.'},{id:'sade',name:'Sade',title:'The bride’s cousin',quote:'Nobody should spoil this wedding.'},{id:'kunle',name:'Kunle',title:'The planner',quote:'The deadline was real, abeg!'},{id:'tunde',name:'Tunde',title:'The tech volunteer',quote:'Who had folder access?'},{id:'nene',name:'Nene',title:'The bride’s sister',quote:'₦2.4 million and no venue?!'}],
  [{id:'jide',name:'Jide',title:'Generator keeper',quote:'That machine was overheating.'},{id:'amara',name:'Amara',title:'Hostel rep',quote:'Nobody is evicting anybody.'},{id:'samu',name:'Samu',title:'Football fan',quote:'During Champions League?!'},{id:'peace',name:'Peace',title:'Night porter',quote:'I heard the alarm first.'},{id:'deji',name:'Deji',title:'The chairman',quote:'Somebody must explain!'}]
-];
+]];
 const palettes=[['#a16b53','#ffc76b','#271b28'],['#e0a783','#8fe5c0','#261d2b'],['#82533d','#b8a4ef','#241b26'],['#f0b894','#f187a2','#332530'],['#c88a64','#84bbe6','#281e28']];
-const icons=['📱','💍','⚡'];
-const scenes=[
+const icons=['👰','🕯️','🎙️','📱','💍','⚡'];
+const scenes=[...(window.WAHALA_NEW_SCENES||[]), ...[
  ['THE GROUP CHAT','The group chat was normal. Until it wasn’t.','A private screenshot has escaped the chat. Five people have an explanation. Not all of them add up.'],
  ['THE WEDDING COMMITTEE','A wedding. A missing payment. Pure chaos.','₦2.4 million has gone somewhere it should not. Everybody has a reason to panic.'],
  ['THE HOSTEL','NEPA took light. The allegations stayed on.','The generator is off. The rumour mill is very much on.']
-];
+]];
 const escaped=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const app=document.getElementById('app');
 if(!app)return;
@@ -21,7 +21,7 @@ let lastManualPeek=Date.now();
 function episodeIndex(){
  const selected=app.querySelector('.episode.selected');
  if(selected){const all=[...app.querySelectorAll('.episode')],i=all.indexOf(selected);if(i>=0)return i;}
- try{return Math.max(0,Math.min(2,Number(JSON.parse(localStorage.getItem('wahala_play_state')||'{}').episode)||0))}catch{return 0;}
+ try{return Math.max(0,Math.min(cast.length-1,Number(JSON.parse(localStorage.getItem('wahala_play_state')||'{}').episode)||0))}catch{return 0;}
 }
 function drawing(i,extra=''){
  const [skin,shirt,hair]=palettes[i];
@@ -43,7 +43,7 @@ function drawing(i,extra=''){
 }
 function stageMarkup(ep,kind='home'){
  const people=cast[ep];
- return '<div class="arc-stage '+kind+'" style="--accent:'+['#f7c36a','#e5a6c0','#a0e1c2'][ep]+'"><div class="arc-grid"></div><div class="arc-lights"><i></i><i></i></div><div class="arc-stage-bar"><span class="arc-live-dot"></span> THE DRAMA ROOM <span class="arc-stage-place">· '+scenes[ep][0]+'</span></div><div class="arc-pop arc-pop-one">WHO CAUSE AM? 👀</div><div class="arc-pop arc-pop-two">HOT GIST 🔥</div><div class="arc-cast">'+people.map((p,i)=>'<button type="button" class="arc-character '+(i===stagePeek?'arc-active':'')+'" data-arcade="peek" data-index="'+i+'" aria-label="Meet '+escaped(p.name)+'" aria-pressed="'+(i===stagePeek)+'"><span class="arc-aura"></span>'+drawing(i,'arc-figure-'+i)+'<span class="arc-name">'+escaped(p.name)+'</span></button>').join('')+'</div><div class="arc-floor"></div>'+(kind==='home'?'<div class="arc-dialogue"><span class="arc-reaction">👀</span><div><small>MEET '+escaped(people[stagePeek].name.toUpperCase())+' · '+escaped(people[stagePeek].title)+'</small><strong>'+escaped(people[stagePeek].quote)+'</strong></div><em>TAP THE CAST TO<br>HEAR THE GIST ↗</em></div>':'')+'</div>';
+ return '<div class="arc-stage '+kind+'" style="--accent:'+['#ffd28a','#8ad7fa','#c9a0ff','#f7c36a','#e5a6c0','#a0e1c2'][ep]+'"><div class="arc-grid"></div><div class="arc-lights"><i></i><i></i></div><div class="arc-stage-bar"><span class="arc-live-dot"></span> THE DRAMA ROOM <span class="arc-stage-place">· '+scenes[ep][0]+'</span></div><div class="arc-pop arc-pop-one">WHO CAUSE AM? 👀</div><div class="arc-pop arc-pop-two">HOT GIST 🔥</div><div class="arc-cast">'+people.map((p,i)=>'<button type="button" class="arc-character '+(i===stagePeek?'arc-active':'')+'" data-arcade="peek" data-index="'+i+'" aria-label="Meet '+escaped(p.name)+'" aria-pressed="'+(i===stagePeek)+'"><span class="arc-aura"></span>'+drawing(i,'arc-figure-'+i)+'<span class="arc-name">'+escaped(p.name)+'</span></button>').join('')+'</div><div class="arc-floor"></div>'+(kind==='home'?'<div class="arc-dialogue"><span class="arc-reaction">👀</span><div><small>MEET '+escaped(people[stagePeek].name.toUpperCase())+' · '+escaped(people[stagePeek].title)+'</small><strong>'+escaped(people[stagePeek].quote)+'</strong></div><em>TAP THE CAST TO<br>HEAR THE GIST ↗</em></div>':'')+'</div>';
 }
 function miniStage(ep,roleName){
  return '<div class="arc-mini-stage"><div class="arc-mini-header"><span><i class="arc-live-dot"></i> THE CAST IS WATCHING</span><strong>5 CHARACTERS · 1 MYSTERY</strong></div><div class="arc-mini-cast">'+cast[ep].map((p,i)=>'<div class="arc-mini-seat '+(roleName===p.name?'is-player':'')+'">'+drawing(i,'arc-mini-drawing')+'<small>'+escaped(p.name)+(roleName===p.name?' ★':'')+'</small></div>').join('')+'</div><div class="arc-mini-footer">🔥 GROUP CHAT HEAT <span class="arc-heat"><i></i></span> FOLLOW THE RECEIPTS</div></div>';
@@ -58,7 +58,7 @@ function decorate(){
   const heroButton=hero.querySelector('button[data-action="setup"]');if(heroButton)heroButton.innerHTML='▶ PLAY WAHALA NOW';
   const old=hero.querySelector('.hero-card');const container=document.createElement('div');container.className='arc-stage-holder';container.innerHTML=stageMarkup(ep,'home');old.replaceWith(container);
   if(!wide.querySelector('.arc-ticker')){const ticker=document.createElement('div');ticker.className='arc-ticker';ticker.innerHTML='<div>🔥 EVERYBODY KNOWS SOMETHING &nbsp; ✳ &nbsp; NOBODY KNOWS EVERYTHING &nbsp; 👀 &nbsp; FOLLOW THE RECEIPTS &nbsp; 🔥 EVERYBODY KNOWS SOMETHING &nbsp; ✳ &nbsp; NOBODY KNOWS EVERYTHING &nbsp; 👀 &nbsp; FOLLOW THE RECEIPTS &nbsp;</div>';wide.prepend(ticker);}
-  app.querySelectorAll('.episode').forEach((card,i)=>{const emoji=document.createElement('span');emoji.className='arc-episode-icon';emoji.textContent=icons[i];card.prepend(emoji);card.style.setProperty('--accent',['#f7c36a','#e5a6c0','#a0e1c2'][i])});
+  app.querySelectorAll('.episode').forEach((card,i)=>{const emoji=document.createElement('span');emoji.className='arc-episode-icon';emoji.textContent=icons[i];card.prepend(emoji);card.style.setProperty('--accent',['#ffd28a','#8ad7fa','#c9a0ff','#f7c36a','#e5a6c0','#a0e1c2'][i])});
  }
  const dossier=app.querySelector('.persona-hero');
  if(dossier&&!dossier.querySelector('.arc-portrait')){
@@ -121,12 +121,12 @@ function leaveIntroduction(startGame){
 document.addEventListener('click',function(event){
  const target=event.target.closest('[data-arcade]');if(target){
   const action=target.dataset.arcade;
-  if(action==='peek'){if(event.isTrusted)lastManualPeek=Date.now();stagePeek=Number(target.dataset.index)||0;const ep=episodeIndex(),root=target.closest('.arc-stage');if(root){root.querySelectorAll('.arc-character').forEach(b=>{const active=b===target;b.classList.toggle('arc-active',active);b.setAttribute('aria-pressed',String(active))});const d=root.querySelector('.arc-dialogue');if(d)d.innerHTML='<span class="arc-reaction">👀</span><div><small>MEET '+escaped(cast[ep][stagePeek].name.toUpperCase())+' · '+escaped(cast[ep][stagePeek].title)+'</small><strong>'+escaped(cast[ep][stagePeek].quote)+'</strong></div><em>TAP THE CAST TO<br>HEAR THE GIST ↗</em>'}}
-  if(action==='intro-next'){openingStep++;if(openingStep>2)leaveIntroduction(true);else updateIntroduction()}
+  if(action==='peek'){if(event.isTrusted){lastManualPeek=Date.now();window.WahalaAudio?.sfx?.('tap')}stagePeek=Number(target.dataset.index)||0;const ep=episodeIndex(),root=target.closest('.arc-stage');if(root){root.querySelectorAll('.arc-character').forEach(b=>{const active=b===target;b.classList.toggle('arc-active',active);b.setAttribute('aria-pressed',String(active))});const d=root.querySelector('.arc-dialogue');if(d)d.innerHTML='<span class="arc-reaction">👀</span><div><small>MEET '+escaped(cast[ep][stagePeek].name.toUpperCase())+' · '+escaped(cast[ep][stagePeek].title)+'</small><strong>'+escaped(cast[ep][stagePeek].quote)+'</strong></div><em>TAP THE CAST TO<br>HEAR THE GIST ↗</em>'}}
+  if(action==='intro-next'){window.WahalaAudio?.sfx?.('tap');openingStep++;if(openingStep>2)leaveIntroduction(true);else updateIntroduction()}
   if(action==='intro-skip')leaveIntroduction(true);
   if(action==='intro-cancel')leaveIntroduction(false);
-  if(action==='open-envelope'){const wrapper=target.closest('.arc-sealed');wrapper?.remove();const receipt=app.querySelector('.receipt'),actions=app.querySelector('.receipt-actions'),note=app.querySelector('.receipt-actions + .notebox');if(receipt)receipt.hidden=false;if(actions)actions.hidden=false;if(note)note.hidden=false;receipt?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'center'});}
-  if(action==='suspect'){const sel=app.querySelector('#actor');if(sel){sel.value=target.dataset.id;sel.dispatchEvent(new Event('change',{bubbles:true}));app.querySelectorAll('.arc-ballot-person').forEach(b=>{let chosen=b===target;b.classList.toggle('chosen',chosen);b.setAttribute('aria-pressed',String(chosen))})}}
+  if(action==='open-envelope'){window.WahalaAudio?.sfx?.('discovery');const wrapper=target.closest('.arc-sealed');wrapper?.remove();const receipt=app.querySelector('.receipt'),actions=app.querySelector('.receipt-actions'),note=app.querySelector('.receipt-actions + .notebox');if(receipt)receipt.hidden=false;if(actions)actions.hidden=false;if(note)note.hidden=false;receipt?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'center'});}
+  if(action==='suspect'){window.WahalaAudio?.sfx?.('seal');const sel=app.querySelector('#actor');if(sel){sel.value=target.dataset.id;sel.dispatchEvent(new Event('change',{bubbles:true}));app.querySelectorAll('.arc-ballot-person').forEach(b=>{let chosen=b===target;b.classList.toggle('chosen',chosen);b.setAttribute('aria-pressed',String(chosen))})}}
   return;
  }
  const gameButton=event.target.closest('[data-action="begin"]');
