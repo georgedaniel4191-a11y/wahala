@@ -1,0 +1,45 @@
+/* WAHALA AFTER DARK — the story and music edition */
+.soundtrack-switch{border-color:#f8d18388!important;background:linear-gradient(115deg,#ffcb7226,#e9719822)!important;color:#ffd895!important;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.soundtrack-switch:hover{box-shadow:0 0 0 3px #ffd27820}
+.audio-volume{display:inline-flex;align-items:center;gap:7px;color:#e1d8df;font:800 11px 'Space Grotesk',sans-serif;white-space:nowrap;background:#ffffff09;border:1px solid #ffffff28;border-radius:11px;padding:6px 9px}
+.audio-volume input{accent-color:#ffd47e;width:75px;height:20px;cursor:pointer}
+.audio-volume output{font-variant-numeric:tabular-nums;min-width:28px;text-align:right}
+.episodes .episode:nth-child(-n+3){position:relative;border-color:#f7cf7a6b}
+.episodes .episode:nth-child(-n+3):after{content:"✳ AFTER DARK";position:absolute;top:19px;right:9px;z-index:2;color:#281921;background:#ffd37c;border:1px solid #fff2cc;border-radius:999px;padding:5px 8px;font:900 9px 'Space Grotesk',sans-serif;transform:rotate(5deg);box-shadow:0 4px 0 #573c38}
+.episodes .episode:nth-child(-n+3).selected{box-shadow:0 0 0 2px #ffd47a90,0 15px 45px #0006}
+.episodes .episode:nth-child(-n+3) h3{font-size:clamp(22px,2.5vw,30px);padding-right:0}
+.episodes .episode:nth-child(-n+3) p{max-width:260px}
+.episodes .episode:nth-child(1){background:radial-gradient(circle at 85% 10%,#b5736c66,transparent 75%),#27202d}
+.episodes .episode:nth-child(2){background:radial-gradient(circle at 85% 10%,#4866a27a,transparent 75%),#222438}
+.episodes .episode:nth-child(3){background:radial-gradient(circle at 85% 10%,#8253a679,transparent 75%),#292034}
+.episode-symbol,.arc-episode-icon{filter:drop-shadow(0 8px 0 #08080e66)}
+.prediction-stage{position:relative;isolation:isolate;overflow:hidden;padding:31px 0 35px;text-align:center}
+.prediction-stage:before{content:"";position:absolute;z-index:-1;inset:2% -18%;background:radial-gradient(circle at 55% 10%,#782f62af,transparent 65%),repeating-conic-gradient(#ffcf7e0c 0 14deg,transparent 14deg 28deg);animation:after-dark-spin 42s linear infinite}
+@keyframes after-dark-spin{to{transform:rotate(360deg)}}
+.prediction-stage>.small-top{display:inline-block;border:1px solid #ffcf7788;border-radius:999px;padding:9px 16px;background:#ffcc7618;color:#ffdda4;margin-bottom:23px;font-size:12px}
+.prediction-stage h2{font-size:clamp(42px,6.6vw,81px);max-width:900px;margin:7px auto 15px;line-height:.98;text-shadow:0 8px 0 #41273d}
+.prediction-stage>.lead{margin:0 auto 27px;max-width:750px;font-size:17px}
+.prediction-stage>.lead strong{color:#ffdb89}
+.theory-stakes{display:flex;justify-content:center;align-items:center;gap:14px;margin:25px 0 20px;color:#ffdb98;font:900 clamp(17px,2.9vw,28px) 'Space Grotesk',sans-serif;letter-spacing:-.04em}
+.theory-stakes>span{font-size:33px;animation:after-dark-dice 3s ease-in-out infinite}
+@keyframes after-dark-dice{50%{transform:rotate(14deg) scale(1.12)}}
+.prediction-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;text-align:left}
+.prediction-choice{display:flex;min-height:228px;flex-direction:column;align-items:flex-start;justify-content:space-between;gap:12px;text-align:left;border-radius:21px;border:2px solid #ffffff3a;border-bottom:6px solid #0e0b11;padding:23px 20px;background:linear-gradient(155deg,#30283b,#1b1b27);color:#f8f1e7;transition:transform .2s,border-color .2s,box-shadow .2s}
+.prediction-choice:hover,.prediction-choice:focus-visible{transform:translateY(-8px) rotate(-1deg);border-color:#ffd587;box-shadow:0 18px 40px #0006,0 0 35px #f2b96f22}
+.prediction-choice:active{transform:translateY(-2px)}
+.prediction-number{display:grid;place-items:center;width:47px;height:47px;border-radius:14px;background:#ffca7333;border:1px solid #ffdc9c99;color:#ffdfae;font:900 22px 'Space Grotesk',sans-serif}
+.prediction-choice strong{font:800 clamp(15px,2vw,19px)/1.4 'Space Grotesk',sans-serif}
+.prediction-choice>span:last-child{color:#ffdb9d;letter-spacing:.1em;font:900 10px 'Space Grotesk',sans-serif;margin-top:auto;padding-top:11px}
+.prediction-stage>.notebox{max-width:720px;margin:28px auto 0;text-align:left}
+.reveal-reframe{position:relative;padding:24px 26px;border-radius:22px;border:2px solid #ffcf7a88;background:linear-gradient(110deg,#522e4a,#222033);box-shadow:0 8px 0 #0c0b12,0 18px 40px #0004;margin:19px 0 26px}
+.reveal-reframe .small-top{color:#ffe3a2}
+.reveal-reframe h3{color:#ffe3a2;font-size:clamp(27px,4vw,43px);line-height:1.08;margin:10px 0 10px}
+.reveal-reframe p{font-size:16px;color:#e7d5e4;margin:0}
+.wager-recap{display:flex;flex-direction:column;gap:5px;border:1px solid #ffd17880;background:#ffcf7a17;border-radius:16px;padding:15px 20px;margin:20px 0}
+.wager-recap strong{color:#ffe2aa;letter-spacing:.025em}
+.wager-recap p{margin:0;font-size:13px;color:#d7c7d2}
+.reveal-reframe:before{content:"THE REAL RECEIPTS";position:absolute;right:16px;top:-13px;padding:4px 10px;background:#ffce7d;color:#211923;font:900 10px 'Space Grotesk',sans-serif;border-radius:5px;transform:rotate(4deg)}
+@media(max-width:900px){.prediction-options{gap:11px}.prediction-choice{padding:20px 15px;min-height:225px}.audio-volume input{width:58px}}
+@media(max-width:640px){.prediction-stage h2{font-size:clamp(39px,9.5vw,58px)}.prediction-stage>.lead{font-size:15px}.prediction-options{grid-template-columns:1fr;gap:10px}.prediction-choice{min-height:135px;padding:16px 19px;gap:7px}.prediction-choice strong{font-size:16px}.prediction-choice>span:last-child{font-size:9px;margin:0}.prediction-number{height:32px;width:39px;font-size:16px}.theory-stakes{font-size:20px}.reveal-reframe{padding:20px 17px}.reveal-reframe h3{font-size:30px}.audio-volume{padding:5px 6px;font-size:9px}.audio-volume input{width:53px}.soundtrack-switch{font-size:11px}.episodes .episode:nth-child(-n+3):after{font-size:8px}}
+@media(max-width:385px){.audio-volume{display:none}.episodes .episode:nth-child(-n+3):after{right:6px;padding:4px 6px}.topline-actions .mini-button{padding:7px 8px}}
+@media(prefers-reduced-motion:reduce){.prediction-stage:before,.theory-stakes>span{animation:none!important}.prediction-choice{transition:none!important}}
