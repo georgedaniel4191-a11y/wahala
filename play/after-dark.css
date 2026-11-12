@@ -43,3 +43,9 @@
 @media(max-width:640px){.prediction-stage h2{font-size:clamp(39px,9.5vw,58px)}.prediction-stage>.lead{font-size:15px}.prediction-options{grid-template-columns:1fr;gap:10px}.prediction-choice{min-height:135px;padding:16px 19px;gap:7px}.prediction-choice strong{font-size:16px}.prediction-choice>span:last-child{font-size:9px;margin:0}.prediction-number{height:32px;width:39px;font-size:16px}.theory-stakes{font-size:20px}.reveal-reframe{padding:20px 17px}.reveal-reframe h3{font-size:30px}.audio-volume{padding:5px 6px;font-size:9px}.audio-volume input{width:53px}.soundtrack-switch{font-size:11px}.episodes .episode:nth-child(-n+3):after{font-size:8px}}
 @media(max-width:385px){.audio-volume{display:none}.episodes .episode:nth-child(-n+3):after{right:6px;padding:4px 6px}.topline-actions .mini-button{padding:7px 8px}}
 @media(prefers-reduced-motion:reduce){.prediction-stage:before,.theory-stakes>span{animation:none!important}.prediction-choice{transition:none!important}}
+
+.after-share{margin:20px 0 0;padding:17px 18px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-radius:16px;border:1px dashed #ffcf7973;background:#ffcf7910}
+.after-share strong{color:#ffdb9d;font:900 16px 'Space Grotesk',sans-serif}
+.after-share p{font-size:12px;margin:5px 0 0;color:#d4c2ce}
+.after-share .button{white-space:nowrap}
+@media(max-width:560px){.after-share{flex-direction:column;align-items:stretch}.after-share .button{width:100%}}
