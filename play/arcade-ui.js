@@ -97,6 +97,8 @@ function decorate(){
  }
  if(app.querySelector('.final-score')&&!app.querySelector('.arc-victory')){
   const headline=app.querySelector('.page-title');if(headline)headline.insertAdjacentHTML('beforebegin','<div class="arc-victory">'+(headline.textContent.includes('caught')?'🎉 👑 🎉':'🤯 👀 📜')+'</div>');
+  const score=app.querySelector('.score-summary')?.parentElement;
+  if(score)score.insertAdjacentHTML('beforeend','<div class="after-share"><div><strong>Somebody will argue about this ending.</strong><p>Challenge your group. Share your score without spoiling the story.</p></div><button type="button" class="button outline small" data-arcade="share-result">↗ CHALLENGE A FRIEND</button></div>');
  }
 }
 function queueDecorate(){if(decorateQueued)return;decorateQueued=true;queueMicrotask(()=>{decorateQueued=false;decorate()})}
@@ -130,6 +132,17 @@ document.addEventListener('click',function(event){
   if(action==='intro-skip')leaveIntroduction(true);
   if(action==='intro-cancel')leaveIntroduction(false);
   if(action==='open-envelope'){window.WahalaAudio?.sfx?.('discovery');const wrapper=target.closest('.arc-sealed');wrapper?.remove();const receipt=app.querySelector('.receipt'),actions=app.querySelector('.receipt-actions'),note=app.querySelector('.receipt-actions + .notebox');if(receipt)receipt.hidden=false;if(actions)actions.hidden=false;if(note)note.hidden=false;receipt?.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth',block:'center'});}
+  if(action==='share-result'){
+   window.WahalaAudio?.sfx?.('success');
+   const ep=episodeIndex(),saved=JSON.parse(localStorage.getItem('wahala_play_state')||'{}'),scores=saved.results?.personal?.map(p=>p.score)||[];
+   const best=scores.length?Math.max(...scores):0;
+   const title='WAHALA! — '+(scenes[ep]?.[1]||'The Drama Room');
+   const message='I just played '+title+' and scored '+best+' points. This plot is actually WILD. Think you can solve it? Do not ask me for spoilers. 🎭🔥';
+   const url='https://wahala-game-eight.vercel.app';
+   if(navigator.share){navigator.share({title:'WAHALA!',text:message,url}).catch(()=>{})}
+   else if(navigator.clipboard?.writeText){navigator.clipboard.writeText(message+' '+url).then(()=>{target.textContent='✓ LINK & CHALLENGE COPIED'}).catch(()=>{window.prompt('Copy your challenge',message+' '+url)})}
+   else window.prompt('Copy your challenge',message+' '+url);
+  }
   if(action==='suspect'){window.WahalaAudio?.sfx?.('seal');const sel=app.querySelector('#actor');if(sel){sel.value=target.dataset.id;sel.dispatchEvent(new Event('change',{bubbles:true}));app.querySelectorAll('.arc-ballot-person').forEach(b=>{let chosen=b===target;b.classList.toggle('chosen',chosen);b.setAttribute('aria-pressed',String(chosen))})}}
   return;
  }
