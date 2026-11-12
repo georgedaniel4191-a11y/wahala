@@ -4,7 +4,7 @@
 const AC=g.AudioContext||g.webkitAudioContext;
 let ctx=null,master=null,noise=null,enabled=false,phase='home',scheduler=null,nextTime=0,step=0,level=.30;
 const duration=.153; // 98 BPM, four steps / beat
-const themeMap={home:'lounge',setup:'lounge',handoff:'suspense',dossier:'suspense',turn:'investigation',receipt:'suspense',twist:'danger',vote:'danger',result:'release'};
+const themeMap={home:'lounge',setup:'lounge',handoff:'suspense',dossier:'suspense',turn:'investigation',receipt:'suspense',prediction:'danger',twist:'danger',vote:'danger',result:'release'};
 const notes={
  lounge:[0,3,7,10,7,3,5,7,0,3,7,12,10,7,5,3],
  suspense:[0,null,3,null,7,null,6,null,0,null,8,null,7,null,3,null],
